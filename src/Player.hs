@@ -4,7 +4,7 @@
 module Player where
 
 import Reflex.Class (Reflex, Event, MonadHold, mergeList)
-import Reflex.EventWriter.Class (EventWriter, tellEvent)
+import Reflex.EventWriter.Class (EventWriter)
 
 import Control.Monad.Fix (MonadFix)
 import Data.List.NonEmpty (NonEmpty)
@@ -31,11 +31,11 @@ mkPlayer ::
   , EventWriter t (NonEmpty (ThingAction t)) m
   ) =>
   PlayerControls t ->
-  m (Thing t)
+  m (Event t (), Thing t)
 mkPlayer pc = do
   let
-    eAction :: Event t (NonEmpty Action)
-    eAction =
+    eTick :: Event t (NonEmpty Action)
+    eTick =
       mergeList
       [ Move U 1 <$ (pc ^. pcUp)
       , Move D 1 <$ (pc ^. pcDown)
@@ -43,12 +43,8 @@ mkPlayer pc = do
       , Move R 1 <$ (pc ^. pcRight)
       , Wait <$ (pc ^. pcWait)
       ]
-  dPos <- makePos eAction (Pos 1 1)
-  let
-    res =
-      Thing
-      { _thingSprite = pure '@'
-      , _thingPos = dPos
-      , _thingAction = eAction
-      }
-  res <$ tellEvent (fmap (ThingAction res) <$> eAction)
+
+    eAction = eTick
+
+  res <- mkThing (Pos 1 1) (pure '@') eAction
+  pure (() <$ eTick, res)

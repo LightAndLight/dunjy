@@ -29,9 +29,13 @@ library
                      , reflex-basic-host ^>=0.1
                      , reflex-brick ^>=0.1
                      , brick ^>=0.46
+                     , concurrent-supply ^>=0.1
+                     , containers ^>=0.6
                      , microlens ^>=0.4
                      , microlens-th
+                     , mtl ^>=2.2
                      , random ^>=1.1
+                     , stm ^>=2.5
                      , text >= 1.2
                      , vty ^>=5.24
   hs-source-dirs:      src
