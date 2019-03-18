@@ -27,13 +27,16 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Coerce (coerce)
 import System.Random (Random, randomRIO)
 
+data RRandom a
+data RId a
+
 data DunjyRequest a where
-  RequestRandom :: Random a => a -> a -> DunjyRequest a
-  RequestId :: DunjyRequest Int
+  RequestRandom :: Random a => a -> a -> DunjyRequest (RRandom a)
+  RequestId :: DunjyRequest (RId Int)
 
 data DunjyResponse a where
-  ResponseRandom :: a -> DunjyResponse a
-  ResponseId :: Int -> DunjyResponse Int
+  ResponseRandom :: a -> DunjyResponse (RRandom a)
+  ResponseId :: a -> DunjyResponse (RId a)
 
 data L (l :: [*])
 

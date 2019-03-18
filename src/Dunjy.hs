@@ -8,29 +8,31 @@
 {-# language TemplateHaskell #-}
 module Dunjy where
 
+import Reflex.Adjustable.Class (Adjustable)
 import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold
-  , select, never, mergeWith
+  , select, never, mergeWith, mergeMap, fmapMaybe
   )
 import Reflex.Collection (listHoldWithKey)
-import Reflex.Dynamic (Dynamic, holdDyn)
+import Reflex.Dynamic (Dynamic, switchDyn, updated)
 import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
 import Reflex.Brick.Events (RBEvent(..))
 import Reflex.Brick.Types (ReflexBrickAppState(..))
-import Reflex.EventWriter.Base (runEventWriterT)
 import Reflex.Host.Basic (BasicGuest, BasicGuestConstraints)
 import Reflex.Requester.Class (Requester, Request, Response, requesting)
 import Reflex.Workflow (Workflow(..), workflow)
 
 import Brick.AttrMap (attrMap)
 import Brick.Widgets.Border (border)
-import Brick.Widgets.Core ((<+>), (<=>), raw, txt, translateBy)
+import Brick.Widgets.Core ((<+>), raw, txt, translateBy)
 import Brick.Widgets.Dialog (dialog, renderDialog)
 import Brick.Types (Location(..))
+import Control.Applicative ((<|>))
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
-import Data.Dependent.Sum ((==>))
 import Data.Functor ((<&>))
+import Data.List.NonEmpty (NonEmpty)
+import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
 import Graphics.Vty.Input.Events (Key(..))
@@ -40,6 +42,7 @@ import System.Random (Random(..))
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 
+import Action
 import Thing
 import Player
 import Pos
@@ -63,20 +66,26 @@ initialState =
 makeAppState ::
   Reflex t =>
   Thing t ->
+  Dynamic t (Map Int (Thing t)) ->
   Dynamic t (ReflexBrickAppState n)
-makeAppState player =
-  (\(Pos x y) psprite ->
+makeAppState player dMobs =
+  (\(Pos x y) psprite (mobs :: [(Char, Pos)]) ->
    ReflexBrickAppState
    { _rbWidgets =
      [ border (raw blankScreen) <+>
        border (txt $ "[s] Give me something to fight!")
      , translateBy (Location (x, y)) (txt $ Text.singleton psprite)
-     ]
+     ] <>
+     fmap (\(s, Pos xx yy) -> translateBy (Location (xx, yy)) (txt $ Text.singleton s)) mobs
    , _rbCursorFn = const Nothing
    , _rbAttrMap = attrMap mempty []
    }) <$>
   (player ^. thingPos) <*>
-  (player ^. thingSprite)
+  (player ^. thingSprite) <*>
+  (dMobs >>=
+   foldr
+     (\t rest -> (:) <$> ((,) <$> _thingSprite t <*> _thingPos t) <*> rest)
+     (pure []))
 
 data Pair a b = Pair a b
   deriving (Eq, Show)
@@ -96,8 +105,9 @@ instance (Random a, Random b) => Random (Pair a b) where
       (Pair aval bval, g'')
 
 playScreen ::
-  ( Reflex t, MonadHold t m
+  ( Reflex t, MonadHold t m, MonadFix m
   , Requester t m, Request m ~ HList1 DunjyRequest, Response m ~ HList1 DunjyResponse
+  , Adjustable t m
   , MonadReader (EventSelector t (RBEvent () e)) m
   ) =>
   Event t () ->
@@ -108,7 +118,7 @@ playScreen eQuit eTick player =
   Workflow $ do
     eKeyS <- askSelect $ RBKey (KChar 's')
 
-    eRandomPos :: Event t (HList1 DunjyResponse (L [Pair Int Int, Int])) <-
+    eRandomPos :: Event t (HList1 DunjyResponse (L [RRandom (Pair Int Int), RId Int])) <-
       requesting $
       (HCons1 (RequestRandom (Pair (1 :: Int) (1 :: Int)) (Pair 80 80)) $
        HCons1 RequestId $
@@ -116,23 +126,44 @@ playScreen eQuit eTick player =
       eKeyS
 
     let
-      eInsertMob = eRandomPos
-      eDeleteMob = _
+      eInsertMob =
+        eRandomPos <&>
+        \(HCons1 (ResponseRandom (Pair x y)) (HCons1 (ResponseId i) HNil1)) ->
+          Map.singleton i (Just (Pos x y))
 
-    dMobs <-
-      listHoldWithKey
-        mempty
-        (mergeWith
-           (Map.unionWith _)
-           [ eInsertMob <&> \(HCons1 a (HCons1 b HNil1)) ->
-               _
-           , eDeleteMob
-           ])
-        _
+
+    rec
+      let
+        eDeleteMob =
+          switchDyn $
+          mergeMap .
+          fmap
+            (fmapMaybe (\s -> if s == Dead then Just Nothing else Nothing) .
+             updated .
+             _thingStatus) <$>
+          dMobs
+
+      dMobs :: Dynamic t (Map Int (Thing t)) <-
+        listHoldWithKey
+          mempty
+          (mergeWith (Map.unionWith (<|>)) [eInsertMob, eDeleteMob])
+          (\_ pos -> do
+              eRand <- requesting $ HCons1 (RequestRandom 1 99) HNil1 <$ eTick
+              let
+                decision :: HList1 DunjyResponse (L '[RRandom Int]) -> NonEmpty Action
+                decision (HCons1 (ResponseRandom n) HNil1)
+                  | 1 <= n && n < 20 = [Move L 1]
+                  | 20 <= n && n < 40 = [Move R 1]
+                  | 40 <= n && n < 60 = [Move U 1]
+                  | 60 <= n && n < 80 = [Move D 1]
+                  | otherwise = [Wait]
+
+                eAction = decision <$> eRand
+              mkThing pos 10 (pure 'Z') never eAction)
 
     pure
       ( ReflexBrickApp
-        { rbaAppState = makeAppState player
+        { rbaAppState = makeAppState player dMobs
         , rbaSuspendAndResume = never
         , rbaHalt = eQuit
         }
@@ -146,6 +177,7 @@ startScreen
   :: ( Reflex t, MonadHold t m, MonadFix m
      , Requester t m
      , Request m ~ HList1 DunjyRequest, Response m ~ HList1 DunjyResponse
+     , Adjustable t m
      , MonadReader (EventSelector t (RBEvent () e)) m
      )
   => Workflow t m (ReflexBrickApp t ())
@@ -161,15 +193,16 @@ startScreen =
 
     let eQuit = () <$ eKeyQ
 
-    (eTick, eAction, player) <-
-      mkPlayer $
-      PlayerControls
-      { _pcUp = () <$ eKeyK
-      , _pcDown = () <$ eKeyJ
-      , _pcLeft = () <$ eKeyH
-      , _pcRight = () <$ eKeyL
-      , _pcWait = () <$ eKeyDot
-      }
+    (eTick, _, player) <-
+      mkPlayer
+        (PlayerControls
+         { _pcUp = () <$ eKeyK
+         , _pcDown = () <$ eKeyJ
+         , _pcLeft = () <$ eKeyH
+         , _pcRight = () <$ eKeyL
+         , _pcWait = () <$ eKeyDot
+         })
+        never
 
     pure $
       ( ReflexBrickApp

@@ -31,9 +31,10 @@ mkPlayer ::
   forall t m.
   ( Reflex t, MonadHold t m, MonadFix m
   ) =>
-  PlayerControls t ->
+  PlayerControls t -> -- ^ Controls
+  Event t Int -> -- ^ Received damage
   m (Event t (), Event t (DMap KThing Identity), Thing t)
-mkPlayer pc = do
+mkPlayer pc eDamage = do
   let
     eTick :: Event t (NonEmpty Action)
     eTick =
@@ -47,5 +48,5 @@ mkPlayer pc = do
 
     eAction = eTick
 
-  res <- mkThing (Pos 1 1) (pure '@') eAction
+  res <- mkThing (Pos 1 1) 10 (pure '@') eDamage eAction
   pure (() <$ eTick, DMap.singleton KPlayer . pure <$> eAction, res)

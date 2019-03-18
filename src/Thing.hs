@@ -3,8 +3,8 @@
 {-# language TemplateHaskell #-}
 module Thing where
 
-import Reflex.Class (Reflex, Event, MonadHold)
-import Reflex.Dynamic (Dynamic, foldDyn)
+import Reflex.Class (Reflex, Event, MonadHold, fmapMaybe)
+import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
 import Control.Monad.Fix (MonadFix)
 import Data.Function ((&))
@@ -16,10 +16,17 @@ import Lens.Micro.TH (makeLenses)
 import Action
 import Pos
 
+data Status
+  = Alive
+  | Dead
+  deriving (Eq, Show, Ord)
+
 data Thing t
   = Thing
   { _thingSprite :: Dynamic t Char
   , _thingPos :: Dynamic t Pos
+  , _thingHealth :: Dynamic t Int
+  , _thingStatus :: Dynamic t Status
   , _thingAction :: Event t (NonEmpty Action)
   }
 makeLenses ''Thing
@@ -57,14 +64,24 @@ deriveGCompare ''KThing
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>
   Pos -> -- ^ initial position
-  Dynamic t Char ->
+  Int -> -- ^ initial health
+  Dynamic t Char -> -- ^ sprite
+  Event t Int -> -- ^ damage
   Event t (NonEmpty Action) ->
   m (Thing t)
-mkThing pos dSprite eAction = do
+mkThing pos health dSprite eDamage eAction = do
   dPos <- makePos eAction pos
+  dHealth <- foldDyn subtract health eDamage
+  dStatus <-
+    holdDyn Alive $
+    fmapMaybe
+      (\h -> if h <= 0 then Just Dead else Nothing)
+      (updated dHealth)
   pure $
     Thing
     { _thingSprite = dSprite
     , _thingPos = dPos
+    , _thingHealth = dHealth
+    , _thingStatus = dStatus
     , _thingAction = eAction
     }
