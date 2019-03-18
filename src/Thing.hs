@@ -6,8 +6,6 @@
 {-# language TemplateHaskell #-}
 module Thing where
 
-import Debug.Trace
-
 import Reflex.Class ((<@>), Reflex, Event, MonadHold, fmapMaybe, distributeListOverDyn, current)
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
@@ -69,30 +67,38 @@ runMove dir dist pos =
 mkAdjacent :: forall t. Reflex t => Dynamic t Pos -> Dynamic t [Thing t] -> Adjacent (Dynamic t) t
 mkAdjacent dPos things =
   Adjacent
-  { _adjL =
-      dPos >>= \pos ->
-      fmapMaybe (\(t, p) -> if runMove L 1 p == pos then Just t else Nothing) <$> thingsPos
-  , _adjUL =
-      dPos >>= \pos ->
-      fmapMaybe (\(t, p) -> if runMove UL 1 p == pos then Just t else Nothing) <$> thingsPos
-  , _adjU =
-      dPos >>= \pos ->
-      fmapMaybe (\(t, p) -> if runMove U 1 p == pos then Just t else Nothing) <$> thingsPos
-  , _adjUR =
-      dPos >>= \pos ->
-      fmapMaybe (\(t, p) -> if runMove UR 1 p == pos then Just t else Nothing) <$> thingsPos
-  , _adjR =
-      dPos >>= \pos ->
-      fmapMaybe (\(t, p) -> if runMove R 1 p == pos then Just t else Nothing) <$> thingsPos
-  , _adjDR =
-      dPos >>= \pos ->
-      fmapMaybe (\(t, p) -> if runMove DR 1 p == pos then Just t else Nothing) <$> thingsPos
-  , _adjD =
-      dPos >>= \pos ->
-      fmapMaybe (\(t, p) -> if runMove D 1 p == pos then Just t else Nothing) <$> thingsPos
-  , _adjDL =
-      dPos >>= \pos ->
-      fmapMaybe (\(t, p) -> if runMove DL 1 p == pos then Just t else Nothing) <$> thingsPos
+  { _adjL = do
+      pos <- dPos
+      let posL = runMove L 1 pos
+      fmapMaybe (\(t, p) -> if p == posL then Just t else Nothing) <$> thingsPos
+  , _adjUL = do
+      pos <- dPos
+      let posUL = runMove UL 1 pos
+      fmapMaybe (\(t, p) -> if p == posUL then Just t else Nothing) <$> thingsPos
+  , _adjU = do
+      pos <- dPos
+      let posU = runMove U 1 pos
+      fmapMaybe (\(t, p) -> if p == posU then Just t else Nothing) <$> thingsPos
+  , _adjUR = do
+      pos <- dPos
+      let posUR = runMove UR 1 pos
+      fmapMaybe (\(t, p) -> if p == posUR then Just t else Nothing) <$> thingsPos
+  , _adjR = do
+      pos <- dPos
+      let posR = runMove R 1 pos
+      fmapMaybe (\(t, p) -> if p == posR then Just t else Nothing) <$> thingsPos
+  , _adjDR = do
+      pos <- dPos
+      let posDR = runMove DR 1 pos
+      fmapMaybe (\(t, p) -> if p == posDR then Just t else Nothing) <$> thingsPos
+  , _adjD = do
+      pos <- dPos
+      let posD = runMove D 1 pos
+      fmapMaybe (\(t, p) -> if p == posD then Just t else Nothing) <$> thingsPos
+  , _adjDL = do
+      pos <- dPos
+      let posDL = runMove DL 1 pos
+      fmapMaybe (\(t, p) -> if p == posDL then Just t else Nothing) <$> thingsPos
   }
   where
     thingsPos :: Dynamic t [(Thing t, Pos)]
@@ -132,7 +138,7 @@ makePos eAction initialPos adj =
              Move dir dist ->
                case selectAdj dir adj'' of
                  Identity [] -> runMove dir dist b
-                 _ -> trace "bang" b
+                 _ -> b
              MoveTo pos -> pos
              _ -> b)
         p
