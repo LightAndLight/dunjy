@@ -2,7 +2,15 @@ module Action where
 
 import Pos
 
-data Dir = L | R | U | D
+data Dir
+  = L
+  | UL
+  | U
+  | UR
+  | R
+  | DR
+  | D
+  | DL
   deriving (Eq, Show)
 
 data Action

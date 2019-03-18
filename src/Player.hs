@@ -19,10 +19,14 @@ import Pos
 
 data PlayerControls t
   = PlayerControls
-  { _pcUp :: Event t ()
-  , _pcDown :: Event t ()
-  , _pcLeft :: Event t ()
+  { _pcLeft :: Event t ()
+  , _pcUpLeft :: Event t ()
+  , _pcUp :: Event t ()
+  , _pcUpRight :: Event t ()
   , _pcRight :: Event t ()
+  , _pcDownRight :: Event t ()
+  , _pcDown :: Event t ()
+  , _pcDownLeft :: Event t ()
   , _pcWait :: Event t ()
   }
 makeLenses ''PlayerControls
@@ -39,10 +43,14 @@ mkPlayer pc eDamage = do
     eTick :: Event t (NonEmpty Action)
     eTick =
       mergeList
-      [ Move U 1 <$ (pc ^. pcUp)
-      , Move D 1 <$ (pc ^. pcDown)
-      , Move L 1 <$ (pc ^. pcLeft)
+      [ Move L 1 <$ (pc ^. pcLeft)
+      , Move UL 1 <$ (pc ^. pcUpLeft)
+      , Move U 1 <$ (pc ^. pcUp)
+      , Move UR 1 <$ (pc ^. pcUpRight)
       , Move R 1 <$ (pc ^. pcRight)
+      , Move DR 1 <$ (pc ^. pcDownRight)
+      , Move D 1 <$ (pc ^. pcDown)
+      , Move DL 1 <$ (pc ^. pcDownLeft)
       , Wait <$ (pc ^. pcWait)
       ]
 

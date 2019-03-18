@@ -47,9 +47,13 @@ makePos eAction initialPos =
              Move dir dist ->
                case dir of
                  L -> b & posX %~ subtract dist
-                 R -> b & posX %~ (+ dist)
+                 UL -> b & posX %~ subtract dist & posY %~ subtract dist
                  U -> b & posY %~ subtract dist
+                 UR -> b & posY %~ subtract dist & posX %~ (+ dist)
+                 R -> b & posX %~ (+ dist)
+                 DR -> b & posX %~ (+ dist) & posY %~ (+ dist)
                  D -> b & posY %~ (+ dist)
+                 DL -> b & posY %~ (+ dist) & posX %~ subtract dist
              MoveTo pos -> pos
              _ -> b)
         p

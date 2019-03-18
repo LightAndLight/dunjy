@@ -131,7 +131,6 @@ playScreen eQuit eTick player =
         \(HCons1 (ResponseRandom (Pair x y)) (HCons1 (ResponseId i) HNil1)) ->
           Map.singleton i (Just (Pos x y))
 
-
     rec
       let
         eDeleteMob =
@@ -184,10 +183,17 @@ startScreen
 startScreen =
   Workflow $ do
     eKeyQ <- askSelect $ RBKey (KChar 'q')
+
     eKeyH <- askSelect $ RBKey (KChar 'h')
     eKeyJ <- askSelect $ RBKey (KChar 'j')
     eKeyK <- askSelect $ RBKey (KChar 'k')
     eKeyL <- askSelect $ RBKey (KChar 'l')
+
+    eKeyY <- askSelect $ RBKey (KChar 'y')
+    eKeyU <- askSelect $ RBKey (KChar 'u')
+    eKeyB <- askSelect $ RBKey (KChar 'b')
+    eKeyN <- askSelect $ RBKey (KChar 'n')
+
     eKeySpace <- askSelect $ RBKey (KChar ' ')
     eKeyDot <- askSelect $ RBKey (KChar '.')
 
@@ -196,10 +202,14 @@ startScreen =
     (eTick, _, player) <-
       mkPlayer
         (PlayerControls
-         { _pcUp = () <$ eKeyK
-         , _pcDown = () <$ eKeyJ
-         , _pcLeft = () <$ eKeyH
+         { _pcLeft = () <$ eKeyH
+         , _pcUpLeft = () <$ eKeyY
+         , _pcUp = () <$ eKeyK
+         , _pcUpRight = () <$ eKeyU
          , _pcRight = () <$ eKeyL
+         , _pcDownRight = () <$ eKeyN
+         , _pcDown = () <$ eKeyJ
+         , _pcDownLeft = () <$ eKeyB
          , _pcWait = () <$ eKeyDot
          })
         never
