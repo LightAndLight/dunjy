@@ -17,4 +17,5 @@ data Action
   = Move !Dir !Int
   | MoveTo !Pos
   | Wait
+  | Melee !Dir
   deriving (Eq, Show)

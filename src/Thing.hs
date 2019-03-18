@@ -1,13 +1,19 @@
 {-# language FlexibleContexts #-}
 {-# language GADTs #-}
+{-# language RankNTypes #-}
+{-# language RecursiveDo #-}
+{-# language ScopedTypeVariables #-}
 {-# language TemplateHaskell #-}
 module Thing where
 
-import Reflex.Class (Reflex, Event, MonadHold, fmapMaybe)
+import Debug.Trace
+
+import Reflex.Class ((<@>), Reflex, Event, MonadHold, fmapMaybe, distributeListOverDyn, current)
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
 import Control.Monad.Fix (MonadFix)
 import Data.Function ((&))
+import Data.Functor.Identity (Identity(..))
 import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
 import Data.List.NonEmpty (NonEmpty)
 import Lens.Micro ((%~))
@@ -21,43 +27,125 @@ data Status
   | Dead
   deriving (Eq, Show, Ord)
 
+data Adjacent f t
+  = Adjacent
+  { _adjL :: f [Thing t]
+  , _adjUL :: f [Thing t]
+  , _adjU :: f [Thing t]
+  , _adjUR :: f [Thing t]
+  , _adjR :: f [Thing t]
+  , _adjDR :: f [Thing t]
+  , _adjD :: f [Thing t]
+  , _adjDL :: f [Thing t]
+  }
+
+distAdjacent :: Applicative g => (forall x. f x -> g (h x)) -> Adjacent f t -> g (Adjacent h t)
+distAdjacent fun (Adjacent a b c d e f g h) =
+  Adjacent <$>
+  fun a <*>
+  fun b <*>
+  fun c <*>
+  fun d <*>
+  fun e <*>
+  fun f <*>
+  fun g <*>
+  fun h
+
+distAdjacentI :: Applicative f => Adjacent f t -> f (Adjacent Identity t)
+distAdjacentI = distAdjacent (fmap pure)
+
+runMove :: Dir -> Int -> Pos -> Pos
+runMove dir dist pos =
+  case dir of
+    L -> pos & posX %~ subtract dist
+    UL -> pos & posX %~ subtract dist & posY %~ subtract dist
+    U -> pos & posY %~ subtract dist
+    UR -> pos & posY %~ subtract dist & posX %~ (+ dist)
+    R -> pos & posX %~ (+ dist)
+    DR -> pos & posX %~ (+ dist) & posY %~ (+ dist)
+    D -> pos & posY %~ (+ dist)
+    DL -> pos & posY %~ (+ dist) & posX %~ subtract dist
+
+mkAdjacent :: forall t. Reflex t => Dynamic t Pos -> Dynamic t [Thing t] -> Adjacent (Dynamic t) t
+mkAdjacent dPos things =
+  Adjacent
+  { _adjL =
+      dPos >>= \pos ->
+      fmapMaybe (\(t, p) -> if runMove L 1 p == pos then Just t else Nothing) <$> thingsPos
+  , _adjUL =
+      dPos >>= \pos ->
+      fmapMaybe (\(t, p) -> if runMove UL 1 p == pos then Just t else Nothing) <$> thingsPos
+  , _adjU =
+      dPos >>= \pos ->
+      fmapMaybe (\(t, p) -> if runMove U 1 p == pos then Just t else Nothing) <$> thingsPos
+  , _adjUR =
+      dPos >>= \pos ->
+      fmapMaybe (\(t, p) -> if runMove UR 1 p == pos then Just t else Nothing) <$> thingsPos
+  , _adjR =
+      dPos >>= \pos ->
+      fmapMaybe (\(t, p) -> if runMove R 1 p == pos then Just t else Nothing) <$> thingsPos
+  , _adjDR =
+      dPos >>= \pos ->
+      fmapMaybe (\(t, p) -> if runMove DR 1 p == pos then Just t else Nothing) <$> thingsPos
+  , _adjD =
+      dPos >>= \pos ->
+      fmapMaybe (\(t, p) -> if runMove D 1 p == pos then Just t else Nothing) <$> thingsPos
+  , _adjDL =
+      dPos >>= \pos ->
+      fmapMaybe (\(t, p) -> if runMove DL 1 p == pos then Just t else Nothing) <$> thingsPos
+  }
+  where
+    thingsPos :: Dynamic t [(Thing t, Pos)]
+    thingsPos = do
+      ts :: [Thing t] <- things
+      let
+        ts' :: [Dynamic t (Thing t, Pos)] = (\t -> (,) t <$> _thingPos t) <$> ts
+        ts'' :: Dynamic t [(Thing t, Pos)] = distributeListOverDyn ts'
+      ts''
+
 data Thing t
   = Thing
   { _thingSprite :: Dynamic t Char
   , _thingPos :: Dynamic t Pos
+  , _thingAdjacent :: Adjacent (Dynamic t) t
   , _thingHealth :: Dynamic t Int
   , _thingStatus :: Dynamic t Status
   , _thingAction :: Event t (NonEmpty Action)
   }
-makeLenses ''Thing
 
 makePos ::
   (Reflex t, MonadHold t m, MonadFix m) =>
   Event t (NonEmpty Action) ->
   Pos ->
+  Adjacent (Dynamic t) t ->
   m (Dynamic t Pos)
-makePos eAction initialPos =
-  foldDyn goPos initialPos eAction
+makePos eAction initialPos adj =
+  foldDyn goPos initialPos $ (,) <$> current adj' <@> eAction
   where
-    goPos :: NonEmpty Action -> Pos -> Pos
-    goPos acts p =
+    adj' = distAdjacentI adj
+
+    goPos :: (Adjacent Identity t, NonEmpty Action) -> Pos -> Pos
+    goPos (adj'', acts) p =
       foldr
         (\a b ->
            case a of
              Move dir dist ->
-               case dir of
-                 L -> b & posX %~ subtract dist
-                 UL -> b & posX %~ subtract dist & posY %~ subtract dist
-                 U -> b & posY %~ subtract dist
-                 UR -> b & posY %~ subtract dist & posX %~ (+ dist)
-                 R -> b & posX %~ (+ dist)
-                 DR -> b & posX %~ (+ dist) & posY %~ (+ dist)
-                 D -> b & posY %~ (+ dist)
-                 DL -> b & posY %~ (+ dist) & posX %~ subtract dist
+               case selectAdj dir adj'' of
+                 Identity [] -> runMove dir dist b
+                 _ -> trace "bang" b
              MoveTo pos -> pos
              _ -> b)
         p
         acts
+
+    selectAdj L = _adjL
+    selectAdj UL = _adjUL
+    selectAdj U = _adjU
+    selectAdj UR = _adjUR
+    selectAdj R = _adjR
+    selectAdj DR = _adjDR
+    selectAdj D = _adjD
+    selectAdj DL = _adjDL
 
 data KThing a where
   KPlayer :: KThing (NonEmpty Action)
@@ -67,14 +155,17 @@ deriveGCompare ''KThing
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>
+  Dynamic t [Thing t] -> -- ^ the other things that exist
   Pos -> -- ^ initial position
   Int -> -- ^ initial health
   Dynamic t Char -> -- ^ sprite
   Event t Int -> -- ^ damage
   Event t (NonEmpty Action) ->
   m (Thing t)
-mkThing pos health dSprite eDamage eAction = do
-  dPos <- makePos eAction pos
+mkThing dThings pos health dSprite eDamage eAction = do
+  rec
+    let adj = mkAdjacent dPos dThings
+    dPos <- makePos eAction pos adj
   dHealth <- foldDyn subtract health eDamage
   dStatus <-
     holdDyn Alive $
@@ -85,7 +176,11 @@ mkThing pos health dSprite eDamage eAction = do
     Thing
     { _thingSprite = dSprite
     , _thingPos = dPos
+    , _thingAdjacent = adj
     , _thingHealth = dHealth
     , _thingStatus = dStatus
     , _thingAction = eAction
     }
+
+makeLenses ''Thing
+makeLenses ''Adjacent

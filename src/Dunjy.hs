@@ -111,16 +111,26 @@ playScreen ::
   , MonadReader (EventSelector t (RBEvent () e)) m
   ) =>
   Event t () ->
-  Event t () ->
-  Thing t ->
   Workflow t m (ReflexBrickApp t ())
-playScreen eQuit eTick player =
+playScreen eQuit =
   Workflow $ do
+    eKeyH <- askSelect $ RBKey (KChar 'h')
+    eKeyJ <- askSelect $ RBKey (KChar 'j')
+    eKeyK <- askSelect $ RBKey (KChar 'k')
+    eKeyL <- askSelect $ RBKey (KChar 'l')
+
+    eKeyY <- askSelect $ RBKey (KChar 'y')
+    eKeyU <- askSelect $ RBKey (KChar 'u')
+    eKeyB <- askSelect $ RBKey (KChar 'b')
+    eKeyN <- askSelect $ RBKey (KChar 'n')
+
+    eKeyDot <- askSelect $ RBKey (KChar '.')
+
     eKeyS <- askSelect $ RBKey (KChar 's')
 
     eRandomPos :: Event t (HList1 DunjyResponse (L [RRandom (Pair Int Int), RId Int])) <-
       requesting $
-      (HCons1 (RequestRandom (Pair (1 :: Int) (1 :: Int)) (Pair 80 80)) $
+      (HCons1 (RequestRandom (Pair (1 :: Int) (1 :: Int)) (Pair 79 79)) $
        HCons1 RequestId $
        HNil1) <$
       eKeyS
@@ -132,6 +142,22 @@ playScreen eQuit eTick player =
           Map.singleton i (Just (Pos x y))
 
     rec
+      (eTick, _, player) <-
+        mkPlayer
+          (PlayerControls
+          { _pcLeft = () <$ eKeyH
+          , _pcUpLeft = () <$ eKeyY
+          , _pcUp = () <$ eKeyK
+          , _pcUpRight = () <$ eKeyU
+          , _pcRight = () <$ eKeyL
+          , _pcDownRight = () <$ eKeyN
+          , _pcDown = () <$ eKeyJ
+          , _pcDownLeft = () <$ eKeyB
+          , _pcWait = () <$ eKeyDot
+          })
+          dMobsList
+          never
+
       let
         eDeleteMob =
           switchDyn $
@@ -158,7 +184,9 @@ playScreen eQuit eTick player =
                   | otherwise = [Wait]
 
                 eAction = decision <$> eRand
-              mkThing pos 10 (pure 'Z') never eAction)
+              mkThing dMobsList pos 10 (pure 'Z') never eAction)
+
+      let dMobsList :: Dynamic t [Thing t] = foldr (:) [] <$> dMobs
 
     pure
       ( ReflexBrickApp
@@ -184,35 +212,9 @@ startScreen =
   Workflow $ do
     eKeyQ <- askSelect $ RBKey (KChar 'q')
 
-    eKeyH <- askSelect $ RBKey (KChar 'h')
-    eKeyJ <- askSelect $ RBKey (KChar 'j')
-    eKeyK <- askSelect $ RBKey (KChar 'k')
-    eKeyL <- askSelect $ RBKey (KChar 'l')
-
-    eKeyY <- askSelect $ RBKey (KChar 'y')
-    eKeyU <- askSelect $ RBKey (KChar 'u')
-    eKeyB <- askSelect $ RBKey (KChar 'b')
-    eKeyN <- askSelect $ RBKey (KChar 'n')
-
     eKeySpace <- askSelect $ RBKey (KChar ' ')
-    eKeyDot <- askSelect $ RBKey (KChar '.')
 
     let eQuit = () <$ eKeyQ
-
-    (eTick, _, player) <-
-      mkPlayer
-        (PlayerControls
-         { _pcLeft = () <$ eKeyH
-         , _pcUpLeft = () <$ eKeyY
-         , _pcUp = () <$ eKeyK
-         , _pcUpRight = () <$ eKeyU
-         , _pcRight = () <$ eKeyL
-         , _pcDownRight = () <$ eKeyN
-         , _pcDown = () <$ eKeyJ
-         , _pcDownLeft = () <$ eKeyB
-         , _pcWait = () <$ eKeyDot
-         })
-        never
 
     pure $
       ( ReflexBrickApp
@@ -220,7 +222,7 @@ startScreen =
         , rbaSuspendAndResume = never
         , rbaHalt = eQuit
         }
-      , playScreen eQuit eTick player <$ eKeySpace
+      , playScreen eQuit <$ eKeySpace
       )
 
 dunjy ::
