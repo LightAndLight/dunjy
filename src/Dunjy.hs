@@ -1,4 +1,6 @@
+{-# language DataKinds #-}
 {-# language FlexibleContexts, TypeFamilies #-}
+{-# language LambdaCase #-}
 {-# language OverloadedLists #-}
 {-# language OverloadedStrings #-}
 {-# language RecursiveDo #-}
@@ -27,6 +29,8 @@ import Brick.Widgets.Dialog (dialog, renderDialog)
 import Brick.Types (Location(..))
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
+import Data.Dependent.Sum ((==>))
+import Data.Functor ((<&>))
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
 import Graphics.Vty.Input.Events (Key(..))
@@ -93,7 +97,7 @@ instance (Random a, Random b) => Random (Pair a b) where
 
 playScreen ::
   ( Reflex t, MonadHold t m
-  , Requester t m, Request m ~ DunjyRequest, Response m ~ DunjyResponse
+  , Requester t m, Request m ~ HList1 DunjyRequest, Response m ~ HList1 DunjyResponse
   , MonadReader (EventSelector t (RBEvent () e)) m
   ) =>
   Event t () ->
@@ -103,7 +107,13 @@ playScreen ::
 playScreen eQuit eTick player =
   Workflow $ do
     eKeyS <- askSelect $ RBKey (KChar 's')
-    eRandomPos <- requesting $ RequestRandom (Pair (1 :: Int) (1 :: Int)) (Pair 80 80) <$ eKeyS
+
+    eRandomPos :: Event t (HList1 DunjyResponse (L [Pair Int Int, Int])) <-
+      requesting $
+      (HCons1 (RequestRandom (Pair (1 :: Int) (1 :: Int)) (Pair 80 80)) $
+       HCons1 RequestId $
+       HNil1) <$
+      eKeyS
 
     let
       eInsertMob = eRandomPos
@@ -112,7 +122,12 @@ playScreen eQuit eTick player =
     dMobs <-
       listHoldWithKey
         mempty
-        (mergeWith (Map.unionWith _) [eInsertMob, eDeleteMob])
+        (mergeWith
+           (Map.unionWith _)
+           [ eInsertMob <&> \(HCons1 a (HCons1 b HNil1)) ->
+               _
+           , eDeleteMob
+           ])
         _
 
     pure
@@ -129,7 +144,8 @@ askSelect k = asks (`select` k)
 
 startScreen
   :: ( Reflex t, MonadHold t m, MonadFix m
-     , Requester t m, Request m ~ DunjyRequest, Response m ~ DunjyResponse
+     , Requester t m
+     , Request m ~ HList1 DunjyRequest, Response m ~ HList1 DunjyResponse
      , MonadReader (EventSelector t (RBEvent () e)) m
      )
   => Workflow t m (ReflexBrickApp t ())
@@ -145,17 +161,15 @@ startScreen =
 
     let eQuit = () <$ eKeyQ
 
-    rec
-      ((eTick, player), eAction) <-
-        runEventWriterT $ do
-          mkPlayer $
-            PlayerControls
-            { _pcUp = () <$ eKeyK
-            , _pcDown = () <$ eKeyJ
-            , _pcLeft = () <$ eKeyH
-            , _pcRight = () <$ eKeyL
-            , _pcWait = () <$ eKeyDot
-            }
+    (eTick, eAction, player) <-
+      mkPlayer $
+      PlayerControls
+      { _pcUp = () <$ eKeyK
+      , _pcDown = () <$ eKeyJ
+      , _pcLeft = () <$ eKeyH
+      , _pcRight = () <$ eKeyL
+      , _pcWait = () <$ eKeyDot
+      }
 
     pure $
       ( ReflexBrickApp

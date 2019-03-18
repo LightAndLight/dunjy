@@ -4,12 +4,14 @@
 module Player where
 
 import Reflex.Class (Reflex, Event, MonadHold, mergeList)
-import Reflex.EventWriter.Class (EventWriter)
 
 import Control.Monad.Fix (MonadFix)
+import Data.Functor.Identity (Identity)
 import Data.List.NonEmpty (NonEmpty)
 import Lens.Micro ((^.))
 import Lens.Micro.TH (makeLenses)
+
+import Data.Dependent.Map as DMap
 
 import Action
 import Thing
@@ -28,10 +30,9 @@ makeLenses ''PlayerControls
 mkPlayer ::
   forall t m.
   ( Reflex t, MonadHold t m, MonadFix m
-  , EventWriter t (NonEmpty (ThingAction t)) m
   ) =>
   PlayerControls t ->
-  m (Event t (), Thing t)
+  m (Event t (), Event t (DMap KThing Identity), Thing t)
 mkPlayer pc = do
   let
     eTick :: Event t (NonEmpty Action)
@@ -47,4 +48,4 @@ mkPlayer pc = do
     eAction = eTick
 
   res <- mkThing (Pos 1 1) (pure '@') eAction
-  pure (() <$ eTick, res)
+  pure (() <$ eTick, DMap.singleton KPlayer . pure <$> eAction, res)

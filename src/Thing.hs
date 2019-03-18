@@ -1,13 +1,14 @@
 {-# language FlexibleContexts #-}
+{-# language GADTs #-}
 {-# language TemplateHaskell #-}
 module Thing where
 
 import Reflex.Class (Reflex, Event, MonadHold)
 import Reflex.Dynamic (Dynamic, foldDyn)
-import Reflex.EventWriter.Class (EventWriter, tellEvent)
 
 import Control.Monad.Fix (MonadFix)
 import Data.Function ((&))
+import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
 import Data.List.NonEmpty (NonEmpty)
 import Lens.Micro ((%~))
 import Lens.Micro.TH (makeLenses)
@@ -22,9 +23,6 @@ data Thing t
   , _thingAction :: Event t (NonEmpty Action)
   }
 makeLenses ''Thing
-
-data ThingAction t
-  = ThingAction (Thing t) Action
 
 makePos ::
   (Reflex t, MonadHold t m, MonadFix m) =>
@@ -50,21 +48,23 @@ makePos eAction initialPos =
         p
         acts
 
+data KThing a where
+  KPlayer :: KThing (NonEmpty Action)
+  KThing :: Int -> KThing (NonEmpty Action)
+deriveGEq ''KThing
+deriveGCompare ''KThing
+
 mkThing ::
-  ( Reflex t, MonadHold t m, MonadFix m
-  , EventWriter t (NonEmpty (ThingAction t)) m
-  ) =>
+  (Reflex t, MonadHold t m, MonadFix m) =>
   Pos -> -- ^ initial position
   Dynamic t Char ->
   Event t (NonEmpty Action) ->
   m (Thing t)
 mkThing pos dSprite eAction = do
   dPos <- makePos eAction pos
-  let
-    res =
-      Thing
-      { _thingSprite = dSprite
-      , _thingPos = dPos
-      , _thingAction = eAction
-      }
-  res <$ tellEvent (fmap (ThingAction res) <$> eAction)
+  pure $
+    Thing
+    { _thingSprite = dSprite
+    , _thingPos = dPos
+    , _thingAction = eAction
+    }

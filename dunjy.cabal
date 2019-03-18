@@ -31,6 +31,9 @@ library
                      , brick ^>=0.46
                      , concurrent-supply ^>=0.1
                      , containers ^>=0.6
+                     , dependent-map ^>= 0.2
+                     , dependent-sum ^>=0.4
+                     , dependent-sum-template ^>=0.0
                      , microlens ^>=0.4
                      , microlens-th
                      , mtl ^>=2.2

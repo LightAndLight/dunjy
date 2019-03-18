@@ -1,12 +1,17 @@
+{-# language DataKinds, TypeOperators #-}
 {-# language FlexibleContexts #-}
 {-# language FlexibleInstances, MultiParamTypeClasses #-}
+{-# language FunctionalDependencies #-}
 {-# language GADTs #-}
 {-# language GeneralizedNewtypeDeriving #-}
 {-# language LambdaCase #-}
+{-# language PolyKinds #-}
+{-# language RankNTypes #-}
 {-# language RecursiveDo #-}
 {-# language ScopedTypeVariables #-}
 {-# language TypeFamilies #-}
 module Random where
+
 
 import Reflex.Adjustable.Class (Adjustable(..))
 import Reflex.Class (Reflex, Event, MonadSample, MonadHold, coerceEvent)
@@ -28,11 +33,25 @@ data DunjyRequest a where
 
 data DunjyResponse a where
   ResponseRandom :: a -> DunjyResponse a
-  ResponseId :: a -> DunjyResponse a
+  ResponseId :: Int -> DunjyResponse Int
+
+data L (l :: [*])
+
+data HList1 (f :: * -> *) (ls :: *) where
+  HNil1 :: HList1 f (L '[])
+  HCons1 :: f x -> HList1 f (L xs) -> HList1 f (L (x ': xs))
+
+traverseHList1 ::
+  Applicative m =>
+  (forall x. f x -> m (g x)) ->
+  HList1 f as ->
+  m (HList1 g as)
+traverseHList1 _ HNil1 = pure HNil1
+traverseHList1 f (HCons1 a b) = HCons1 <$> f a <*> traverseHList1 f b
 
 newtype RandomT t m a
   = RandomT
-  { unRandomT :: RequesterT t DunjyRequest DunjyResponse m a
+  { unRandomT :: RequesterT t (HList1 DunjyRequest) (HList1 DunjyResponse) m a
   } deriving (Functor, Applicative, Monad, MonadFix, MonadSample t, MonadHold t)
 
 instance (MonadHold t m, MonadFix m, Adjustable t m) => Adjustable t (RandomT t m) where
@@ -43,8 +62,8 @@ instance (MonadHold t m, MonadFix m, Adjustable t m) => Adjustable t (RandomT t 
     RandomT (traverseDMapWithKeyWithAdjustWithMove (coerce a) b c)
 
 instance (Reflex t, Monad m) => Requester t (RandomT t m) where
-  type Request (RandomT t m) = DunjyRequest
-  type Response (RandomT t m) = DunjyResponse
+  type Request (RandomT t m) = HList1 DunjyRequest
+  type Response (RandomT t m) = HList1 DunjyResponse
 
   requesting = RandomT . requesting
   requesting_ = RandomT . requesting_
@@ -59,19 +78,22 @@ runRandomT (RandomT m) = do
   rec
     (a, eRequest) <- runRequesterT m eResponse
     let
-      eRequest' :: Event t (Performable m (RequesterData DunjyResponse)) =
+      eRequest' :: Event t (Performable m (RequesterData (HList1 DunjyResponse))) =
         fmap
-        (traverseRequesterData
+        (traverseRequesterData $
+         traverseHList1
            (\case
               RequestRandom lower upper ->
-                ResponseRandom <$> liftIO (randomRIO (lower, upper))
+                ResponseRandom <$>
+                liftIO (randomRIO (lower, upper))
               RequestId ->
+                fmap ResponseId .
                 liftIO .
                 atomically $ do
                   s <- readTVar supplyVar
                   let (i, s') = freshId s
                   writeTVar supplyVar s'
-                  pure $ ResponseId i))
+                  pure i))
         eRequest
     eResponse <- performEvent eRequest'
   pure a
