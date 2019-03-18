@@ -1,3 +1,4 @@
+{-# language BangPatterns #-}
 {-# language DataKinds #-}
 {-# language FlexibleContexts, TypeFamilies #-}
 {-# language LambdaCase #-}
@@ -43,7 +44,9 @@ import qualified Data.Map as Map
 import qualified Data.Text as Text
 
 import Action
+import Level
 import Thing
+import Tile
 import Player
 import Pos
 import Random
@@ -63,16 +66,33 @@ initialState =
   , _rbAttrMap = attrMap mempty []
   }
 
+drawLevel :: Level t (Thing t) -> Image
+drawLevel (Level w h _) = backgroundFill w h
+{-
+  go 0 0 mempty mempty
+  where
+    go !x !y img line =
+      if x == w
+      then
+        if y == h
+        then img <-> text mempty (Builder.toLazyText line)
+        else go 0 (y+1) (img <-> text mempty (Builder.toLazyText line)) mempty
+      else
+        -- go (x+1) y img (line <> _ (Vector.unsafeIndex ts (y * w + x)))
+        go (x+1) y img (line <> Builder.singleton ' ')
+-}
+
 makeAppState ::
   Reflex t =>
-  Thing t ->
-  Dynamic t (Map Int (Thing t)) ->
+  Level t (Thing t) ->
+  Positioned t (Thing t) ->
+  Dynamic t [Positioned t (Thing t)] ->
   Dynamic t (ReflexBrickAppState n)
-makeAppState player dMobs =
+makeAppState level player dMobs =
   (\(Pos x y) psprite (mobs :: [(Char, Pos)]) ->
    ReflexBrickAppState
    { _rbWidgets =
-     [ border (raw blankScreen) <+>
+     [ border (raw $ drawLevel level) <+>
        border (txt $ "[s] Give me something to fight!")
      , translateBy (Location (x, y)) (txt $ Text.singleton psprite)
      ] <>
@@ -80,11 +100,11 @@ makeAppState player dMobs =
    , _rbCursorFn = const Nothing
    , _rbAttrMap = attrMap mempty []
    }) <$>
-  (player ^. thingPos) <*>
-  (player ^. thingSprite) <*>
+  (player ^. posPos) <*>
+  (player ^. posThing.thingSprite) <*>
   (dMobs >>=
    foldr
-     (\t rest -> (:) <$> ((,) <$> _thingSprite t <*> _thingPos t) <*> rest)
+     (\t rest -> (:) <$> ((,) <$> (^.) t (posThing.thingSprite) <*> (^.) t posPos) <*> rest)
      (pure []))
 
 data Pair a b = Pair a b
@@ -142,7 +162,9 @@ playScreen eQuit =
           Map.singleton i (Just (Pos x y))
 
     rec
-      (eTick, _, player) <-
+      level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobsList $ Pos x y)
+
+      (eTick, _, playerThing) <-
         mkPlayer
           (PlayerControls
           { _pcLeft = () <$ eKeyH
@@ -155,8 +177,9 @@ playScreen eQuit =
           , _pcDownLeft = () <$ eKeyB
           , _pcWait = () <$ eKeyDot
           })
-          dMobsList
           never
+      playerPos <- mkPos level (playerThing ^. thingAction) (Pos 1 1)
+      let player = Positioned playerThing playerPos
 
       let
         eDeleteMob =
@@ -165,10 +188,10 @@ playScreen eQuit =
           fmap
             (fmapMaybe (\s -> if s == Dead then Just Nothing else Nothing) .
              updated .
-             _thingStatus) <$>
+             (^. posThing.thingStatus)) <$>
           dMobs
 
-      dMobs :: Dynamic t (Map Int (Thing t)) <-
+      dMobs :: Dynamic t (Map Int (Positioned t (Thing t))) <-
         listHoldWithKey
           mempty
           (mergeWith (Map.unionWith (<|>)) [eInsertMob, eDeleteMob])
@@ -184,13 +207,16 @@ playScreen eQuit =
                   | otherwise = [Wait]
 
                 eAction = decision <$> eRand
-              mkThing dMobsList pos 10 (pure 'Z') never eAction)
 
-      let dMobsList :: Dynamic t [Thing t] = foldr (:) [] <$> dMobs
+              thing <- mkThing 10 (pure 'Z') never eAction
+              p <- mkPos level (_thingAction thing) pos
+              pure $ Positioned thing p)
+
+      let dMobsList :: Dynamic t [Positioned t (Thing t)] = foldr (:) [] <$> dMobs
 
     pure
       ( ReflexBrickApp
-        { rbaAppState = makeAppState player dMobs
+        { rbaAppState = makeAppState level player dMobsList
         , rbaSuspendAndResume = never
         , rbaHalt = eQuit
         }

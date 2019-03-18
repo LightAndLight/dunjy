@@ -24,6 +24,8 @@ library
                      , Action
                      , Player
                      , Random
+                     , Tile
+                     , Level
   build-depends:       base ^>=4.12.0.0
                      , reflex ^>=0.5
                      , reflex-basic-host ^>=0.1
@@ -39,7 +41,8 @@ library
                      , mtl ^>=2.2
                      , random ^>=1.1
                      , stm ^>=2.5
-                     , text >= 1.2
+                     , text ^>= 1.2
+                     , vector ^>=0.12
                      , vty ^>=5.24
   hs-source-dirs:      src
   ghc-options:         -Wall -Werror

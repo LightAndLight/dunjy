@@ -4,7 +4,6 @@
 module Player where
 
 import Reflex.Class (Reflex, Event, MonadHold, mergeList)
-import Reflex.Dynamic (Dynamic)
 
 import Control.Monad.Fix (MonadFix)
 import Data.Functor.Identity (Identity)
@@ -16,7 +15,6 @@ import Data.Dependent.Map as DMap
 
 import Action
 import Thing
-import Pos
 
 data PlayerControls t
   = PlayerControls
@@ -37,10 +35,9 @@ mkPlayer ::
   ( Reflex t, MonadHold t m, MonadFix m
   ) =>
   PlayerControls t -> -- ^ controls
-  Dynamic t [Thing t] -> -- ^ the other things that exist
   Event t Int -> -- ^ received damage
   m (Event t (), Event t (DMap KThing Identity), Thing t)
-mkPlayer pc dThings eDamage = do
+mkPlayer pc eDamage = do
   let
     eTick :: Event t (NonEmpty Action)
     eTick =
@@ -58,5 +55,5 @@ mkPlayer pc dThings eDamage = do
 
     eAction = eTick
 
-  res <- mkThing dThings (Pos 1 1) 10 (pure '@') eDamage eAction
+  res <- mkThing 10 (pure '@') eDamage eAction
   pure (() <$ eTick, DMap.singleton KPlayer . pure <$> eAction, res)
