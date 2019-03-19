@@ -21,6 +21,7 @@ import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
 import Reflex.Brick.Events (RBEvent(..))
 import Reflex.Brick.Types (ReflexBrickAppState(..))
 import Reflex.Host.Basic (BasicGuest, BasicGuestConstraints)
+import Reflex.PostBuild.Class (PostBuild, getPostBuild)
 import Reflex.Requester.Class (Requester, Request, Response, requesting)
 import Reflex.Workflow (Workflow(..), workflow)
 
@@ -89,27 +90,23 @@ drawLevel (Level w h _) = backgroundFill w h
 makeAppState ::
   Reflex t =>
   Level t (Dynamic t) ->
-  Positioned t (Thing t) ->
   Dynamic t (Map ThingType (Pos, Thing t)) ->
   Dynamic t (ReflexBrickAppState n)
-makeAppState level player dMobs =
-  (\(Pos x y) psprite mobs ->
+makeAppState level dMobs =
+  (\mobs ->
    ReflexBrickAppState
    { _rbWidgets =
      [ border (raw $ drawLevel level) <+>
        border (txt $ "[s] Give me something to fight!")
-     , translateBy (Location (x, y)) (txt $ Text.singleton psprite)
      ] <>
      foldr
-       (\(Pos xx yy, s) b ->
-          translateBy (Location (xx, yy)) (txt $ Text.singleton s) : b)
+       (\(Pos x y, s) b ->
+          translateBy (Location (x, y)) (txt $ Text.singleton s) : b)
        []
        mobs
    , _rbCursorFn = const Nothing
    , _rbAttrMap = attrMap mempty []
    }) <$>
-  (player ^. posPos) <*>
-  (player ^. posThing.thingSprite) <*>
   joinDynThroughMap (fmap (\(p, t) -> (,) p <$> (^.) t thingSprite) <$> dMobs)
 
 data Pair a b = Pair a b
@@ -156,10 +153,25 @@ instance (Bounded a, Random a) => Random (Optional a) where
 askSelect :: MonadReader (EventSelector t k) m => k a -> m (Event t a)
 askSelect k = asks (`select` k)
 
+{-
+
+Dynamic (Map ThingType (Positioned Thing))
+~> by tagging the action event with the value of the dynamic
+Dynamic (Map ThingType (Event (Pos, Action)))
+
+Dynamic (Map ThingType (Event Action))  this changes when: a new thing is added
+~>
+Event (Map ThingType Action)
+
+Dynamic (Map ThingType Pos)  this changes when: a new thing is added, and when something moves
+
+-}
+
 playScreen ::
   ( Reflex t, MonadHold t m, MonadFix m
   , Requester t m, Request m ~ HList1 DunjyRequest, Response m ~ HList1 DunjyResponse
   , Adjustable t m
+  , PostBuild t m
   , MonadReader (EventSelector t (RBEvent () e)) m
   ) =>
   Event t () ->
@@ -193,9 +205,9 @@ playScreen eQuit =
         \(HCons1 (ResponseRandom (Pair x y)) (HCons1 (ResponseId i) HNil1)) ->
           Map.singleton (TThing i) (Just (Pos x y))
 
+    ePostBuild <- getPostBuild
     rec
-      level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobs' $ Pos x y)
-      let dLevel = distLevelD level
+      level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobs $ Pos x y)
 
       (eTick, playerThing) <-
         mkPlayer
@@ -212,63 +224,70 @@ playScreen eQuit =
           })
           never
 
-      playerPos <- mkPos dLevel (playerThing ^. thingAction) (Pos 1 1)
-      let player = Positioned playerThing playerPos
-
       let
-        eDeleteMob =
+        eInsertPlayer = Map.singleton TPlayer (Just $ Pos 1 1) <$ ePostBuild
+
+        eDeleteMobs :: Event t (Map ThingType (Maybe Pos))
+        eDeleteMobs =
           switchDyn $
           mergeMap .
           fmap
             (fmapMaybe (\s -> if s == Dead then Just Nothing else Nothing) .
              updated .
-             (^. posThing.thingStatus)) <$>
+             _thingStatus .
+             snd) <$>
           dMobs
 
-      dMobs :: Dynamic t (Map ThingType (Positioned t (Thing t))) <-
-        fmap (Map.insert TPlayer player) <$>
+        eMobsMoved :: Event t (Map ThingType (Maybe Pos))
+        eMobsMoved =
+          switchDyn $
+          fmap moveThings .
+          mergeMap .
+          fmap (\(p, t) -> (,) p <$> fmapMaybe moveAction (_thingAction t)) <$>
+          dMobs
+
+      dMobs :: Dynamic t (Map ThingType (Pos, Thing t)) <-
         listHoldWithKey
           mempty
-          (mergeWith (Map.unionWith (<|>)) [eInsertMob, eDeleteMob])
-          (\_ pos -> do
-              eRand <- requesting $ HCons1 RequestRandom HNil1 <$ eTick
-              let
-                decision ::
-                  HList1 DunjyResponse (L '[RRandom (Optional Dir)]) ->
-                  DMap Action Identity
-                decision (HCons1 (ResponseRandom odir) HNil1) =
-                  case odir of
-                    None -> DMap.singleton Wait (pure ())
-                    Some dir -> DMap.singleton (Move dir) (pure 1)
+          (mergeWith (Map.unionWith (<|>)) [eInsertPlayer, eInsertMob, eDeleteMobs, eMobsMoved])
+          (\k pos ->
+             case k of
+               TPlayer -> pure (pos, playerThing)
+               TThing{} -> do
+                  eRand <- requesting $ HCons1 RequestRandom HNil1 <$ eTick
+                  let
+                    decision ::
+                      HList1 DunjyResponse (L '[RRandom (Optional Dir)]) ->
+                      DMap Action Identity
+                    decision (HCons1 (ResponseRandom odir) HNil1) =
+                      case odir of
+                        None -> DMap.singleton Wait (pure ())
+                        Some dir -> DMap.singleton (Move dir) (pure 1)
 
-                eAction = decision <$> eRand
+                    eAction = decision <$> eRand
 
-              thing <- mkThing 10 (pure 'Z') never eAction
-              p <- mkPos dLevel (_thingAction thing) pos
+                  thing <- mkThing 10 (pure 'Z') never eAction
 
-              pure $ Positioned thing p)
-
-      let
-        dMobs' :: Dynamic t (Map ThingType (Pos, Thing t)) =
-          joinDynThroughMap (fmap (\(Positioned t p) -> (,) <$> p <*> pure t) <$> dMobs)
+                  pure (pos, thing))
 
     pure
       ( ReflexBrickApp
-        { rbaAppState = makeAppState level player dMobs'
+        { rbaAppState = makeAppState level dMobs
         , rbaSuspendAndResume = never
         , rbaHalt = eQuit
         }
       , never
       )
 
-startScreen
-  :: ( Reflex t, MonadHold t m, MonadFix m
-     , Requester t m
-     , Request m ~ HList1 DunjyRequest, Response m ~ HList1 DunjyResponse
-     , Adjustable t m
-     , MonadReader (EventSelector t (RBEvent () e)) m
-     )
-  => Workflow t m (ReflexBrickApp t ())
+startScreen ::
+  ( Reflex t, MonadHold t m, MonadFix m
+  , Requester t m
+  , Request m ~ HList1 DunjyRequest, Response m ~ HList1 DunjyResponse
+  , Adjustable t m
+  , PostBuild t m
+  , MonadReader (EventSelector t (RBEvent () e)) m
+  ) =>
+  Workflow t m (ReflexBrickApp t ())
 startScreen =
   Workflow $ do
     eKeyQ <- askSelect $ RBKey (KChar 'q')

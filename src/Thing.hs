@@ -12,17 +12,23 @@ import Reflex.Class
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
 import Control.Monad.Fix (MonadFix)
+import Control.Monad.State (evalState, get, put)
 import Data.Dependent.Map (DMap)
 import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
+import Data.Map (Map)
+import Data.List.NonEmpty (NonEmpty)
+import Data.Traversable (for)
 import Lens.Micro ((%~))
 import Lens.Micro.TH (makeLenses)
 
 import qualified Data.Dependent.Map as DMap
+import qualified Data.Set as Set
 
 import Action
 import Level
 import Pos
+import ThingType
 import Tile
 
 data Status
@@ -41,6 +47,26 @@ runMove dir dist pos =
     DR -> pos & posX %~ (+ dist) & posY %~ (+ dist)
     D -> pos & posY %~ (+ dist)
     DL -> pos & posY %~ (+ dist) & posX %~ subtract dist
+
+runMove' :: Pos -> Move -> Pos
+runMove' pos (Relative dir dist) = runMove dir dist pos
+runMove' _ (Absolute pos) = pos
+
+moveThings :: Map ThingType (Pos, NonEmpty Move) -> Map ThingType (Maybe Pos)
+moveThings m =
+  flip evalState Set.empty .
+  for m $ \(pos, mvs) -> do
+    seen <- get
+    let
+      newPos :: Pos
+      newPos =
+        -- if a movement tick would result in a Thing landing on another
+        -- Thing (that may have moved this tick), then it doesn't move
+        let res = foldl runMove' pos mvs in
+        if res `Set.member` seen
+          then pos
+          else res
+    Just newPos <$ put (Set.insert newPos seen)
 
 data Thing t
   = Thing
@@ -76,15 +102,6 @@ mkPos dLevel eAction initialPos =
             _ -> \_ -> id)
         p
         actions
-    {-
-    goPos (level,  dir dist) p =
-      let p' = runMove dir dist p in
-      case levelPos p' level of
-        Just tile | null (runIdentity $ _tileOccupants tile) -> p'
-        _ -> p
-    goPos (_, MoveTo pos) _ = pos
-    goPos _ _ = pos
--}
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>

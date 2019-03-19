@@ -18,6 +18,7 @@ import Reflex.Class (Reflex, Event, MonadSample, MonadHold, coerceEvent)
 import Reflex.PerformEvent.Class (PerformEvent, Performable, performEvent)
 import Reflex.Requester.Base (RequesterT, RequesterData, runRequesterT, traverseRequesterData)
 import Reflex.Requester.Class (Requester(..))
+import Reflex.PostBuild.Class (PostBuild)
 
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (newTVarIO, readTVar, writeTVar)
@@ -56,7 +57,7 @@ traverseHList1 f (HCons1 a b) = HCons1 <$> f a <*> traverseHList1 f b
 newtype RandomT t m a
   = RandomT
   { unRandomT :: RequesterT t (HList1 DunjyRequest) (HList1 DunjyResponse) m a
-  } deriving (Functor, Applicative, Monad, MonadFix, MonadSample t, MonadHold t)
+  } deriving (Functor, Applicative, Monad, MonadFix, MonadSample t, MonadHold t, PostBuild t)
 
 instance (MonadHold t m, MonadFix m, Adjustable t m) => Adjustable t (RandomT t m) where
   runWithReplace a b = RandomT (runWithReplace (coerce a) (coerceEvent b))
