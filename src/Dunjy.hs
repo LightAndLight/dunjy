@@ -15,7 +15,7 @@ import Reflex.Class
   , select, never, mergeWith, mergeMap, fmapMaybe
   )
 import Reflex.Collection (listHoldWithKey)
-import Reflex.Dynamic (Dynamic, switchDyn, updated)
+import Reflex.Dynamic (Dynamic, switchDyn, updated, distributeMapOverDynPure)
 import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
 import Reflex.Brick.Events (RBEvent(..))
 import Reflex.Brick.Types (ReflexBrickAppState(..))
@@ -42,6 +42,7 @@ import System.Random (Random(..))
 
 import qualified Data.Map as Map
 import qualified Data.Text as Text
+import qualified Data.Vector as Vector
 
 import Action
 import Level
@@ -66,7 +67,7 @@ initialState =
   , _rbAttrMap = attrMap mempty []
   }
 
-drawLevel :: Level t (Thing t) -> Image
+drawLevel :: Level (Dynamic t) (Thing t) -> Image
 drawLevel (Level w h _) = backgroundFill w h
 {-
   go 0 0 mempty mempty
@@ -84,28 +85,32 @@ drawLevel (Level w h _) = backgroundFill w h
 
 makeAppState ::
   Reflex t =>
-  Level t (Thing t) ->
+  Level (Dynamic t) (Thing t) ->
   Positioned t (Thing t) ->
-  Dynamic t [Positioned t (Thing t)] ->
+  Dynamic t (Map Int (Positioned t (Thing t))) ->
   Dynamic t (ReflexBrickAppState n)
 makeAppState level player dMobs =
-  (\(Pos x y) psprite (mobs :: [(Char, Pos)]) ->
+  (\(Pos x y) psprite mobs ->
    ReflexBrickAppState
    { _rbWidgets =
      [ border (raw $ drawLevel level) <+>
        border (txt $ "[s] Give me something to fight!")
      , translateBy (Location (x, y)) (txt $ Text.singleton psprite)
      ] <>
-     fmap (\(s, Pos xx yy) -> translateBy (Location (xx, yy)) (txt $ Text.singleton s)) mobs
+     foldr
+       (\(s, Pos xx yy) b ->
+          translateBy (Location (xx, yy)) (txt $ Text.singleton s) : b)
+       []
+       mobs
    , _rbCursorFn = const Nothing
    , _rbAttrMap = attrMap mempty []
    }) <$>
   (player ^. posPos) <*>
   (player ^. posThing.thingSprite) <*>
   (dMobs >>=
-   foldr
-     (\t rest -> (:) <$> ((,) <$> (^.) t (posThing.thingSprite) <*> (^.) t posPos) <*> rest)
-     (pure []))
+   \m ->
+     distributeMapOverDynPure
+     ((\(Positioned s p) -> (,) <$> (^.) s thingSprite <*> p) <$> m))
 
 data Pair a b = Pair a b
   deriving (Eq, Show)
@@ -162,7 +167,9 @@ playScreen eQuit =
           Map.singleton i (Just (Pos x y))
 
     rec
-      level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobsList $ Pos x y)
+      level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobs $ Pos x y)
+      -- let dLevel = distLevelI level
+      let dLevel = pure $ Level 80 80 $ Tiles $ Vector.replicate (80*80) (Tile $ pure [])
 
       (eTick, _, playerThing) <-
         mkPlayer
@@ -178,7 +185,8 @@ playScreen eQuit =
           , _pcWait = () <$ eKeyDot
           })
           never
-      playerPos <- mkPos level (playerThing ^. thingAction) (Pos 1 1)
+
+      playerPos <- mkPos dLevel (playerThing ^. thingAction) (Pos 1 1)
       let player = Positioned playerThing playerPos
 
       let
@@ -191,6 +199,8 @@ playScreen eQuit =
              (^. posThing.thingStatus)) <$>
           dMobs
 
+      let dMobs :: Dynamic t (Map Int (Positioned t (Thing t))) = pure mempty
+{-
       dMobs :: Dynamic t (Map Int (Positioned t (Thing t))) <-
         listHoldWithKey
           mempty
@@ -209,14 +219,13 @@ playScreen eQuit =
                 eAction = decision <$> eRand
 
               thing <- mkThing 10 (pure 'Z') never eAction
-              p <- mkPos level (_thingAction thing) pos
+              p <- mkPos dLevel (_thingAction thing) pos
               pure $ Positioned thing p)
-
-      let dMobsList :: Dynamic t [Positioned t (Thing t)] = foldr (:) [] <$> dMobs
+-}
 
     pure
       ( ReflexBrickApp
-        { rbaAppState = makeAppState level player dMobsList
+        { rbaAppState = makeAppState level player dMobs
         , rbaSuspendAndResume = never
         , rbaHalt = eQuit
         }

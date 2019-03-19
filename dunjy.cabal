@@ -45,7 +45,7 @@ library
                      , vector ^>=0.12
                      , vty ^>=5.24
   hs-source-dirs:      src
-  ghc-options:         -Wall -Werror
+  ghc-options:         -Wall
   default-language:    Haskell2010
 
 executable dunjy
@@ -56,5 +56,5 @@ executable dunjy
                      , reflex-brick ^>=0.1
                      , brick ^>=0.46
   hs-source-dirs:      app
-  ghc-options:         -threaded -Wall -Werror
+  ghc-options:         -threaded -Wall
   default-language:    Haskell2010

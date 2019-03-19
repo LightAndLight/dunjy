@@ -6,12 +6,12 @@
 {-# language TemplateHaskell #-}
 module Thing where
 
-import Reflex.Class (Reflex, Event, MonadHold, fmapMaybe)
+import Reflex.Class ((<@>), Reflex, Event, MonadHold, fmapMaybe, current)
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
-import Control.Monad (join)
 import Control.Monad.Fix (MonadFix)
 import Data.Function ((&))
+import Data.Functor.Identity (Identity(..))
 import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
 import Data.List.NonEmpty (NonEmpty)
 import Lens.Micro ((%~))
@@ -50,27 +50,27 @@ data Thing t
 mkPos ::
   forall t m.
   (Reflex t, MonadHold t m, MonadFix m) =>
-  Level t (Thing t) ->
+  Dynamic t (Level Identity (Thing t)) ->
   Event t (NonEmpty Action) ->
   Pos ->
   m (Dynamic t Pos)
-mkPos level eAction initialPos =
-  join <$> foldDyn goPos (pure initialPos) eAction
+mkPos dLevel eAction initialPos =
+  foldDyn goPos initialPos $ (,) <$> current dLevel <@> eAction
   where
-    goPos :: NonEmpty Action -> Dynamic t Pos -> Dynamic t Pos
-    goPos acts p =
+    goPos :: (Level Identity (Thing t), NonEmpty Action) -> Pos -> Pos
+    goPos (level, acts) p =
       foldr
         (\a b ->
            case a of
              Move dir dist -> do
-               p' <- runMove dir dist <$> b
+               let p' = runMove dir dist b
                case levelPos p' level of
                  Nothing -> b
                  Just tile ->
-                   (\occs b' -> if null occs then p' else b') <$>
-                   _tileOccupants tile <*>
-                   b
-             MoveTo pos -> pure pos
+                   if null (runIdentity $ _tileOccupants tile)
+                   then p'
+                   else b
+             MoveTo pos -> pos
              _ -> b)
         p
         acts
