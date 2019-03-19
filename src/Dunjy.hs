@@ -126,6 +126,30 @@ instance (Random a, Random b) => Random (Pair a b) where
     in
       (Pair aval bval, g'')
 
+data Optional a
+  = None
+  | Some a
+  deriving (Eq, Show, Ord)
+
+instance (Bounded a, Random a) => Random (Optional a) where
+  randomR (None, None) g = (None, g)
+  randomR (None, Some a) g =
+    let
+      (b, g') = random g
+    in
+      if b
+      then (None, g')
+      else
+        let
+          (a', g'') = randomR (minBound, a) g'
+        in
+          (Some a', g'')
+  randomR (Some a, Some b) g =
+    let (a', g') = randomR (a, b) g in (Some a', g')
+  randomR (Some a, None) g = (Some a, g)
+
+  random = randomR (None, Some maxBound)
+
 askSelect :: MonadReader (EventSelector t k) m => k a -> m (Event t a)
 askSelect k = asks (`select` k)
 
@@ -155,7 +179,7 @@ playScreen eQuit =
 
     eRandomPos :: Event t (HList1 DunjyResponse (L [RRandom (Pair Int Int), RId Int])) <-
       requesting $
-      (HCons1 (RequestRandom (Pair (1 :: Int) (1 :: Int)) (Pair 79 79)) $
+      (HCons1 (RequestRandomR (Pair (1 :: Int) (1 :: Int)) (Pair 79 79)) $
        HCons1 RequestId $
        HNil1) <$
       eKeyS
@@ -203,15 +227,15 @@ playScreen eQuit =
           mempty
           (mergeWith (Map.unionWith (<|>)) [eInsertMob, eDeleteMob])
           (\_ pos -> do
-              eRand <- requesting $ HCons1 (RequestRandom 1 99) HNil1 <$ eTick
+              eRand <- requesting $ HCons1 RequestRandom HNil1 <$ eTick
               let
-                decision :: HList1 DunjyResponse (L '[RRandom Int]) -> NonEmpty Action
-                decision (HCons1 (ResponseRandom n) HNil1)
-                  | 1 <= n && n < 20 = [Move L 1]
-                  | 20 <= n && n < 40 = [Move R 1]
-                  | 40 <= n && n < 60 = [Move U 1]
-                  | 60 <= n && n < 80 = [Move D 1]
-                  | otherwise = [Wait]
+                decision ::
+                  HList1 DunjyResponse (L '[RRandom (Optional Dir)]) ->
+                  NonEmpty Action
+                decision (HCons1 (ResponseRandom odir) HNil1) =
+                  case odir of
+                    None -> [Wait]
+                    Some dir -> [Move dir 1]
 
                 eAction = decision <$> eRand
 

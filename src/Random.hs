@@ -25,13 +25,14 @@ import Control.Concurrent.Supply (newSupply, freshId)
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Coerce (coerce)
-import System.Random (Random, randomRIO)
+import System.Random (Random, randomRIO, randomIO)
 
 data RRandom a
 data RId a
 
 data DunjyRequest a where
-  RequestRandom :: Random a => a -> a -> DunjyRequest (RRandom a)
+  RequestRandomR :: Random a => a -> a -> DunjyRequest (RRandom a)
+  RequestRandom :: Random a => DunjyRequest (RRandom a)
   RequestId :: DunjyRequest (RId Int)
 
 data DunjyResponse a where
@@ -86,9 +87,11 @@ runRandomT (RandomT m) = do
         (traverseRequesterData $
          traverseHList1
            (\case
-              RequestRandom lower upper ->
+              RequestRandomR lower upper ->
                 ResponseRandom <$>
                 liftIO (randomRIO (lower, upper))
+              RequestRandom ->
+                ResponseRandom <$> liftIO randomIO
               RequestId ->
                 fmap ResponseId .
                 liftIO .
