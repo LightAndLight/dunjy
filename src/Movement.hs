@@ -37,7 +37,8 @@ instance Ord Node where; compare (Node a _) (Node b _) = compare a b
 buildGraph ::
   (Graph g, Vertex g ~ Node) =>
   (Pos -> Bool) ->
-  Map ThingType (Pos, DMap Action Identity) -> g
+  Map ThingType (Pos, DMap Action Identity) ->
+  g
 buildGraph free m = res
   where
     posMap :: Map Pos Node
@@ -98,3 +99,9 @@ runMoves am = foldl' go mempty order
         case macc' of
           Nothing -> acc
           Just acc' -> go acc' rest
+
+moveThings ::
+  (Pos -> Bool) ->
+  Map ThingType (Pos, DMap Action Identity) ->
+  Map ThingType Pos
+moveThings free = runMoves . buildGraph free

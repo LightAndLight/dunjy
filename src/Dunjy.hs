@@ -13,10 +13,11 @@ import Reflex.Adjustable.Class (Adjustable)
 import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold
   , select, never, mergeWith, mergeMap, fmapMaybe
+  , attachWith
   )
 import Reflex.Collection (listHoldWithKey)
 import Reflex.Dynamic
-  (Dynamic, switchDyn, updated, joinDynThroughMap)
+  (Dynamic, switchDyn, updated, joinDynThroughMap, current)
 import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
 import Reflex.Brick.Events (RBEvent(..))
 import Reflex.Brick.Types (ReflexBrickAppState(..))
@@ -36,6 +37,7 @@ import Control.Monad.Reader (MonadReader, runReaderT, asks)
 import Data.Dependent.Map (DMap)
 import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
@@ -237,6 +239,19 @@ playScreen eQuit =
              _thingStatus .
              snd) <$>
           dMobs
+
+        eMobsMoved' :: Event t (Map ThingType (Pos, Maybe (NonEmpty Move)))
+        eMobsMoved' =
+          attachWith
+            (\a b -> b <> fmap (Nothing <$) a)
+            (current dMobs)
+            (switchDyn $
+             mergeMap .
+             fmap
+               (\(p, t) ->
+                  (,) p <$>
+                  fmapMaybe (Just . moveAction) (_thingAction t)) <$>
+             dMobs)
 
         eMobsMoved :: Event t (Map ThingType (Maybe Pos))
         eMobsMoved =

@@ -7,8 +7,7 @@
 {-# language TemplateHaskell #-}
 module Thing where
 
-import Reflex.Class
-  ((<@>), Reflex, Event, MonadHold, fmapMaybe, current)
+import Reflex.Class (Reflex, Event, MonadHold, fmapMaybe)
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
 import Control.Monad.Fix (MonadFix)
@@ -22,14 +21,11 @@ import Data.Traversable (for)
 import Lens.Micro ((%~))
 import Lens.Micro.TH (makeLenses)
 
-import qualified Data.Dependent.Map as DMap
 import qualified Data.Set as Set
 
 import Action
-import Level
 import Pos
 import ThingType
-import Tile
 
 data Status
   = Alive
@@ -75,33 +71,6 @@ data Thing t
   , _thingStatus :: Dynamic t Status
   , _thingAction :: Event t (DMap Action Identity)
   }
-
-mkPos ::
-  forall t m.
-  (Reflex t, MonadHold t m, MonadFix m) =>
-  Dynamic t (Level t Identity) ->
-  Event t (DMap Action Identity) ->
-  Pos ->
-  m (Dynamic t Pos)
-mkPos dLevel eAction initialPos =
-  foldDyn goPos initialPos $
-  (,) <$>
-  current dLevel <@>
-  eAction
-  where
-    goPos :: (Level t Identity, DMap Action Identity) -> Pos -> Pos
-    goPos (level, actions) p =
-      DMap.foldrWithKey
-        (\case
-            Move dir -> \(Identity dist) b ->
-              let p' = runMove dir dist b in
-              case levelPos p' level of
-                Just tile | null (runIdentity $ _tileOccupants tile) -> p'
-                _ -> b
-            MoveTo -> \(Identity p') _ -> p'
-            _ -> \_ -> id)
-        p
-        actions
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>
