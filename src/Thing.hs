@@ -1,5 +1,6 @@
 {-# language FlexibleContexts #-}
 {-# language GADTs #-}
+{-# language LambdaCase #-}
 {-# language RankNTypes #-}
 {-# language RecursiveDo #-}
 {-# language ScopedTypeVariables #-}
@@ -11,11 +12,13 @@ import Reflex.Class
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
 import Control.Monad.Fix (MonadFix)
+import Data.Dependent.Map (DMap)
 import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
-import Data.List.NonEmpty (NonEmpty)
 import Lens.Micro ((%~))
 import Lens.Micro.TH (makeLenses)
+
+import qualified Data.Dependent.Map as DMap
 
 import Action
 import Level
@@ -44,43 +47,51 @@ data Thing t
   { _thingSprite :: Dynamic t Char
   , _thingHealth :: Dynamic t Int
   , _thingStatus :: Dynamic t Status
-  , _thingAction :: Event t (NonEmpty Action)
+  , _thingAction :: Event t (DMap Action Identity)
   }
 
 mkPos ::
   forall t m.
   (Reflex t, MonadHold t m, MonadFix m) =>
   Dynamic t (Level t Identity) ->
-  Event t (NonEmpty Action) ->
+  Event t (DMap Action Identity) ->
   Pos ->
   m (Dynamic t Pos)
 mkPos dLevel eAction initialPos =
-  foldDyn goPos initialPos $ (,) <$> current dLevel <@> eAction
+  foldDyn goPos initialPos $
+  (,) <$>
+  current dLevel <@>
+  eAction
   where
-    goPos :: (Level t Identity, NonEmpty Action) -> Pos -> Pos
-    goPos (level, acts) p =
-      foldr
-        (\a b ->
-           case a of
-             Move dir dist -> do
-               let p' = runMove dir dist b
-               case levelPos p' level of
-                 Nothing -> b
-                 Just tile ->
-                   if null (runIdentity $ _tileOccupants tile)
-                   then p'
-                   else b
-             MoveTo pos -> pos
-             _ -> b)
+    goPos :: (Level t Identity, DMap Action Identity) -> Pos -> Pos
+    goPos (level, actions) p =
+      DMap.foldrWithKey
+        (\case
+            Move dir -> \(Identity dist) b ->
+              let p' = runMove dir dist b in
+              case levelPos p' level of
+                Just tile | null (runIdentity $ _tileOccupants tile) -> p'
+                _ -> b
+            MoveTo -> \(Identity p') _ -> p'
+            _ -> \_ -> id)
         p
-        acts
+        actions
+    {-
+    goPos (level,  dir dist) p =
+      let p' = runMove dir dist p in
+      case levelPos p' level of
+        Just tile | null (runIdentity $ _tileOccupants tile) -> p'
+        _ -> p
+    goPos (_, MoveTo pos) _ = pos
+    goPos _ _ = pos
+-}
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>
   Int -> -- ^ initial health
   Dynamic t Char -> -- ^ sprite
   Event t Int -> -- ^ damage
-  Event t (NonEmpty Action) ->
+  Event t (DMap Action Identity) -> -- ^ its actions
   m (Thing t)
 mkThing health dSprite eDamage eAction = do
   dHealth <- foldDyn subtract health eDamage

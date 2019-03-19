@@ -32,8 +32,9 @@ import Brick.Types (Location(..))
 import Control.Applicative ((<|>))
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
+import Data.Dependent.Map (DMap)
 import Data.Functor ((<&>))
-import Data.List.NonEmpty (NonEmpty)
+import Data.Functor.Identity (Identity)
 import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
@@ -41,6 +42,7 @@ import Graphics.Vty.Input.Events (Key(..))
 import Lens.Micro ((^.))
 import System.Random (Random(..))
 
+import qualified Data.Dependent.Map as DMap
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 
@@ -233,11 +235,11 @@ playScreen eQuit =
               let
                 decision ::
                   HList1 DunjyResponse (L '[RRandom (Optional Dir)]) ->
-                  NonEmpty Action
+                  DMap Action Identity
                 decision (HCons1 (ResponseRandom odir) HNil1) =
                   case odir of
-                    None -> [Wait]
-                    Some dir -> [Move dir 1]
+                    None -> DMap.singleton Wait (pure ())
+                    Some dir -> DMap.singleton (Move dir) (pure 1)
 
                 eAction = decision <$> eRand
 

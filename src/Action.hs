@@ -1,5 +1,10 @@
+{-# options_ghc -fno-warn-unused-matches #-}
+{-# language GADTs #-}
+{-# language TemplateHaskell #-}
 module Action where
 
+import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
+import Data.GADT.Show.TH (deriveGShow)
 import System.Random (Random(..))
 
 import Pos
@@ -22,9 +27,11 @@ instance Random Dir where
 
   random = randomR (minBound, maxBound)
 
-data Action
-  = Move !Dir !Int
-  | MoveTo !Pos
-  | Wait
-  | Melee !Dir
-  deriving (Eq, Show)
+data Action a where
+  Move :: !Dir -> Action Int
+  MoveTo :: Action Pos
+  Wait :: Action ()
+  Melee :: Action Dir
+deriveGEq ''Action
+deriveGCompare ''Action
+deriveGShow ''Action

@@ -6,7 +6,7 @@ import Reflex.Dynamic (Dynamic)
 import Lens.Micro.TH (makeLenses)
 
 data Pos = Pos { _posX :: !Int, _posY :: !Int }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
 
 makeLenses ''Pos
 
