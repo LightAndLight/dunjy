@@ -49,7 +49,7 @@ runMove dir dist pos =
     DL -> pos & posY %~ (+ dist) & posX %~ subtract dist
 
 runMove' :: Pos -> Move -> Pos
-runMove' pos (Relative dir dist) = runMove dir dist pos
+runMove' pos (Relative dir) = runMove dir 1 pos
 runMove' _ (Absolute pos) = pos
 
 moveThings :: Map ThingType (Pos, NonEmpty Move) -> Map ThingType (Maybe Pos)
@@ -93,8 +93,8 @@ mkPos dLevel eAction initialPos =
     goPos (level, actions) p =
       DMap.foldrWithKey
         (\case
-            Move dir -> \(Identity dist) b ->
-              let p' = runMove dir dist b in
+            Move dir -> \_ b ->
+              let p' = runMove dir 1 b in
               case levelPos p' level of
                 Just tile | null (runIdentity $ _tileOccupants tile) -> p'
                 _ -> b
