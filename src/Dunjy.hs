@@ -277,7 +277,7 @@ playScreen eQuit =
                     decision (HCons1 (ResponseRandom odir) HNil1) =
                       case odir of
                         None -> DMap.singleton Wait (pure ())
-                        Some dir -> DMap.singleton (Move dir) (pure 1)
+                        Some dir -> DMap.singleton (Move dir) (pure ())
 
                     eAction = decision <$> eRand
 

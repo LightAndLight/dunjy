@@ -43,14 +43,14 @@ mkPlayer pc eDamage = do
     eTick :: Event t (DMap Action Identity)
     eTick =
       merge . DMap.fromList $
-      [ Move L  :=> 1 <$ (pc ^. pcLeft)
-      , Move UL :=> 1 <$ (pc ^. pcUpLeft)
-      , Move U  :=> 1 <$ (pc ^. pcUp)
-      , Move UR :=> 1 <$ (pc ^. pcUpRight)
-      , Move R  :=> 1 <$ (pc ^. pcRight)
-      , Move DR :=> 1 <$ (pc ^. pcDownRight)
-      , Move D  :=> 1 <$ (pc ^. pcDown)
-      , Move DL :=> 1 <$ (pc ^. pcDownLeft)
+      [ Move L  :=> () <$ (pc ^. pcLeft)
+      , Move UL :=> () <$ (pc ^. pcUpLeft)
+      , Move U  :=> () <$ (pc ^. pcUp)
+      , Move UR :=> () <$ (pc ^. pcUpRight)
+      , Move R  :=> () <$ (pc ^. pcRight)
+      , Move DR :=> () <$ (pc ^. pcDownRight)
+      , Move D  :=> () <$ (pc ^. pcDown)
+      , Move DL :=> () <$ (pc ^. pcDownLeft)
       , Wait :=> (pc ^. pcWait)
       ]
 

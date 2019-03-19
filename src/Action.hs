@@ -33,11 +33,11 @@ instance Random Dir where
 
   random = randomR (minBound, maxBound)
 
-data Move = Relative !Dir !Int | Absolute !Pos
+data Move = Relative !Dir | Absolute !Pos
   deriving (Eq, Show, Ord)
 
 data Action a where
-  Move :: !Dir -> Action Int
+  Move :: !Dir -> Action ()
   MoveTo :: Action Pos
   Wait :: Action ()
   Melee :: Action Dir
@@ -50,7 +50,7 @@ moveAction =
   DMap.foldrWithKey
     (\action (Identity a) acc ->
        case action of
-         Move dir -> Just $ Relative dir a :| foldMap toList acc
+         Move dir -> Just $ Relative dir :| foldMap toList acc
          MoveTo -> Just $ Absolute a :| foldMap toList acc
          _ -> acc)
     Nothing

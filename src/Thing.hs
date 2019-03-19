@@ -45,7 +45,7 @@ runMove dir dist pos =
     DL -> pos & posY %~ (+ dist) & posX %~ subtract dist
 
 runMove' :: Pos -> Move -> Pos
-runMove' pos (Relative dir dist) = runMove dir dist pos
+runMove' pos (Relative dir) = runMove dir 1 pos
 runMove' _ (Absolute pos) = pos
 
 moveThings :: Map ThingType (Pos, NonEmpty Move) -> Map ThingType (Maybe Pos)
