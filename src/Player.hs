@@ -7,12 +7,9 @@ import Reflex.Class (Reflex, Event, MonadHold, mergeList)
 import Reflex.Dynamic (Dynamic)
 
 import Control.Monad.Fix (MonadFix)
-import Data.Functor.Identity (Identity)
 import Data.List.NonEmpty (NonEmpty)
 import Lens.Micro ((^.))
 import Lens.Micro.TH (makeLenses)
-
-import Data.Dependent.Map as DMap
 
 import Action
 import Thing
@@ -37,7 +34,7 @@ mkPlayer ::
   ) =>
   PlayerControls t -> -- ^ controls
   Event t Int -> -- ^ received damage
-  m (Event t (), Event t (DMap KThing Identity), Thing t (Dynamic t))
+  m (Event t (), Thing t (Dynamic t))
 mkPlayer pc eDamage = do
   let
     eTick :: Event t (NonEmpty Action)
@@ -57,4 +54,4 @@ mkPlayer pc eDamage = do
     eAction = eTick
 
   res <- mkThing 10 (pure '@') eDamage eAction
-  pure (() <$ eTick, DMap.singleton KPlayer . pure <$> eAction, res)
+  pure (() <$ eTick, res)

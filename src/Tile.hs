@@ -11,10 +11,11 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 import Pos
+import ThingType
 
 data Tile t f
   = Tile
-  { _tileOccupants :: f (Set Int)
+  { _tileOccupants :: f (Set ThingType)
   }
 
 distTileD ::
@@ -25,7 +26,7 @@ distTileD (Tile d) = Tile . Identity <$> d
 
 newTileAt ::
   Functor f =>
-  f (Map Int (Pos, a)) -> -- ^ positions of things
+  f (Map ThingType (Pos, a)) -> -- ^ positions of things
   Pos ->
   Tile t f
 newTileAt dThings pos =

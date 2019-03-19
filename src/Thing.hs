@@ -13,7 +13,6 @@ import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 import Control.Monad.Fix (MonadFix)
 import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
-import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
 import Data.List.NonEmpty (NonEmpty)
 import Lens.Micro ((%~))
 import Lens.Micro.TH (makeLenses)
@@ -86,12 +85,6 @@ mkPos dLevel eAction initialPos =
              _ -> b)
         p
         acts
-
-data KThing a where
-  KPlayer :: KThing (NonEmpty Action)
-  KThing :: Int -> KThing (NonEmpty Action)
-deriveGEq ''KThing
-deriveGCompare ''KThing
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>

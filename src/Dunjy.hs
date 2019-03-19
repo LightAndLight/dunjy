@@ -47,6 +47,7 @@ import qualified Data.Text as Text
 import Action
 import Level
 import Thing
+import ThingType
 import Tile
 import Player
 import Pos
@@ -87,7 +88,7 @@ makeAppState ::
   Reflex t =>
   Level t (Dynamic t) ->
   Positioned t (Thing t (Dynamic t)) ->
-  Dynamic t (Map Int (Pos, Thing t (Dynamic t))) ->
+  Dynamic t (Map ThingType (Pos, Thing t (Dynamic t))) ->
   Dynamic t (ReflexBrickAppState n)
 makeAppState level player dMobs =
   (\(Pos x y) psprite mobs ->
@@ -188,13 +189,13 @@ playScreen eQuit =
       eInsertMob =
         eRandomPos <&>
         \(HCons1 (ResponseRandom (Pair x y)) (HCons1 (ResponseId i) HNil1)) ->
-          Map.singleton i (Just (Pos x y))
+          Map.singleton (TThing i) (Just (Pos x y))
 
     rec
       level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobs' $ Pos x y)
       let dLevel = distLevelD level
 
-      (eTick, _, playerThing) <-
+      (eTick, playerThing) <-
         mkPlayer
           (PlayerControls
           { _pcLeft = () <$ eKeyH
@@ -222,7 +223,8 @@ playScreen eQuit =
              (^. posThing.thingStatus)) <$>
           dMobs
 
-      dMobs :: Dynamic t (Map Int (Positioned t (Thing t (Dynamic t)))) <-
+      dMobs :: Dynamic t (Map ThingType (Positioned t (Thing t (Dynamic t)))) <-
+        fmap (Map.insert TPlayer player) <$>
         listHoldWithKey
           mempty
           (mergeWith (Map.unionWith (<|>)) [eInsertMob, eDeleteMob])
@@ -245,7 +247,7 @@ playScreen eQuit =
               pure $ Positioned thing p)
 
       let
-        dMobs' :: Dynamic t (Map Int (Pos, Thing t (Dynamic t))) =
+        dMobs' :: Dynamic t (Map ThingType (Pos, Thing t (Dynamic t))) =
           joinDynThroughMap (fmap (\(Positioned t p) -> (,) <$> p <*> pure t) <$> dMobs)
 
     pure
