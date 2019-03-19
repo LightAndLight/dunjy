@@ -8,74 +8,47 @@ import Reflex.Dynamic (Dynamic, distributeMapOverDynPure)
 
 import Data.Functor.Identity (Identity)
 import Data.Map (Map)
-import Data.Vector (Vector)
 
 import qualified Data.Map as Map
 
 import Pos
 import Tile
 
-newtype Tiles f occ
+newtype Tiles t f
   = Tiles
-  { unTiles :: Map Int (Tile f occ)
+  { unTiles :: Map Int (Tile t f)
   }
-
-distTiles ::
-  Applicative m =>
-  (forall x. f x -> m (g x)) ->
-  Tiles f occ ->
-  m (Tiles g occ)
-distTiles fun = fmap Tiles . traverse (distTile fun) . unTiles
-
-distTilesI ::
-  Applicative f =>
-  Tiles f occ ->
-  f (Tiles Identity occ)
-distTilesI = distTiles (fmap pure)
 
 distTilesD ::
   Reflex t =>
-  Tiles (Dynamic t) occ ->
-  Dynamic t (Tiles Identity occ)
+  Tiles t (Dynamic t) ->
+  Dynamic t (Tiles t Identity)
 distTilesD (Tiles ts) =
-  coerceDynamic (distributeMapOverDynPure $ fmap distTileI ts)
+  coerceDynamic (distributeMapOverDynPure $ distTileD <$> ts)
 
-data Level f occ
+data Level t f
   = Level
   { _levelWidth :: Int
   , _levelHeight :: Int
-  , _levelData :: Tiles f occ
+  , _levelData :: Tiles t f
   }
-
-distLevel ::
-  Applicative m =>
-  (forall x. f x -> m (g x)) ->
-  Level f occ ->
-  m (Level g occ)
-distLevel fun (Level w h ts)= Level w h <$> distTiles fun ts
-
-distLevelI ::
-  Applicative f =>
-  Level f occ ->
-  f (Level Identity occ)
-distLevelI = distLevel (fmap pure)
 
 distLevelD ::
   Reflex t =>
-  Level (Dynamic t) occ ->
-  Dynamic t (Level Identity occ)
+  Level t (Dynamic t) ->
+  Dynamic t (Level t Identity)
 distLevelD (Level w h ts) = Level w h <$> distTilesD ts
 
 newLevel ::
-  forall m f occ.
+  forall t m f.
   Monad m =>
   Int ->
   Int ->
-  (Int -> Int -> m (Tile f occ)) ->
-  m (Level f occ)
+  (Int -> Int -> m (Tile t f)) ->
+  m (Level t f)
 newLevel w h mk = Level w h . Tiles <$> make 0 0 0
   where
-    make :: Int -> Int -> Int -> m (Map Int (Tile f occ))
+    make :: Int -> Int -> Int -> m (Map Int (Tile t f))
     make !n !x !y =
       if x == w
       then
@@ -85,7 +58,7 @@ newLevel w h mk = Level w h . Tiles <$> make 0 0 0
       else
         Map.insert n <$> mk x y <*> make (n+1) (x+1) y
 
-levelPos :: Pos -> Level t occ -> Maybe (Tile t occ)
+levelPos :: Pos -> Level t f -> Maybe (Tile t f)
 levelPos (Pos x y) (Level w h (Tiles ts))
   | x < 0 || x >= w || y < 0 || y >= h = Nothing
   | otherwise = Map.lookup (y * w + x) ts

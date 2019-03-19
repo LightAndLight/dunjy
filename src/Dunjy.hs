@@ -15,7 +15,8 @@ import Reflex.Class
   , select, never, mergeWith, mergeMap, fmapMaybe
   )
 import Reflex.Collection (listHoldWithKey)
-import Reflex.Dynamic (Dynamic, switchDyn, updated, distributeMapOverDynPure)
+import Reflex.Dynamic
+  (Dynamic, switchDyn, updated, joinDynThroughMap)
 import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
 import Reflex.Brick.Events (RBEvent(..))
 import Reflex.Brick.Types (ReflexBrickAppState(..))
@@ -42,7 +43,6 @@ import System.Random (Random(..))
 
 import qualified Data.Map as Map
 import qualified Data.Text as Text
-import qualified Data.Vector as Vector
 
 import Action
 import Level
@@ -67,7 +67,7 @@ initialState =
   , _rbAttrMap = attrMap mempty []
   }
 
-drawLevel :: Level (Dynamic t) (Thing t) -> Image
+drawLevel :: Level t (Dynamic t) -> Image
 drawLevel (Level w h _) = backgroundFill w h
 {-
   go 0 0 mempty mempty
@@ -85,9 +85,9 @@ drawLevel (Level w h _) = backgroundFill w h
 
 makeAppState ::
   Reflex t =>
-  Level (Dynamic t) (Thing t) ->
-  Positioned t (Thing t) ->
-  Dynamic t (Map Int (Positioned t (Thing t))) ->
+  Level t (Dynamic t) ->
+  Positioned t (Thing t (Dynamic t)) ->
+  Dynamic t (Map Int (Pos, Thing t (Dynamic t))) ->
   Dynamic t (ReflexBrickAppState n)
 makeAppState level player dMobs =
   (\(Pos x y) psprite mobs ->
@@ -98,7 +98,7 @@ makeAppState level player dMobs =
      , translateBy (Location (x, y)) (txt $ Text.singleton psprite)
      ] <>
      foldr
-       (\(s, Pos xx yy) b ->
+       (\(Pos xx yy, s) b ->
           translateBy (Location (xx, yy)) (txt $ Text.singleton s) : b)
        []
        mobs
@@ -107,10 +107,7 @@ makeAppState level player dMobs =
    }) <$>
   (player ^. posPos) <*>
   (player ^. posThing.thingSprite) <*>
-  (dMobs >>=
-   \m ->
-     distributeMapOverDynPure
-     ((\(Positioned s p) -> (,) <$> (^.) s thingSprite <*> p) <$> m))
+  joinDynThroughMap (fmap (\(p, t) -> (,) p <$> (^.) t thingSprite) <$> dMobs)
 
 data Pair a b = Pair a b
   deriving (Eq, Show)
@@ -128,6 +125,9 @@ instance (Random a, Random b) => Random (Pair a b) where
       (bval, g'') = random g'
     in
       (Pair aval bval, g'')
+
+askSelect :: MonadReader (EventSelector t k) m => k a -> m (Event t a)
+askSelect k = asks (`select` k)
 
 playScreen ::
   ( Reflex t, MonadHold t m, MonadFix m
@@ -167,7 +167,7 @@ playScreen eQuit =
           Map.singleton i (Just (Pos x y))
 
     rec
-      level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobs $ Pos x y)
+      level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobs' $ Pos x y)
       let dLevel = distLevelD level
 
       (eTick, _, playerThing) <-
@@ -198,8 +198,7 @@ playScreen eQuit =
              (^. posThing.thingStatus)) <$>
           dMobs
 
-      -- let dMobs :: Dynamic t (Map Int (Positioned t (Thing t))) = pure mempty
-      dMobs :: Dynamic t (Map Int (Positioned t (Thing t))) <-
+      dMobs :: Dynamic t (Map Int (Positioned t (Thing t (Dynamic t)))) <-
         listHoldWithKey
           mempty
           (mergeWith (Map.unionWith (<|>)) [eInsertMob, eDeleteMob])
@@ -218,19 +217,21 @@ playScreen eQuit =
 
               thing <- mkThing 10 (pure 'Z') never eAction
               p <- mkPos dLevel (_thingAction thing) pos
+
               pure $ Positioned thing p)
+
+      let
+        dMobs' :: Dynamic t (Map Int (Pos, Thing t (Dynamic t))) =
+          joinDynThroughMap (fmap (\(Positioned t p) -> (,) <$> p <*> pure t) <$> dMobs)
 
     pure
       ( ReflexBrickApp
-        { rbaAppState = makeAppState level player dMobs
+        { rbaAppState = makeAppState level player dMobs'
         , rbaSuspendAndResume = never
         , rbaHalt = eQuit
         }
       , never
       )
-
-askSelect :: MonadReader (EventSelector t k) m => k a -> m (Event t a)
-askSelect k = asks (`select` k)
 
 startScreen
   :: ( Reflex t, MonadHold t m, MonadFix m

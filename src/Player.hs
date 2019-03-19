@@ -4,6 +4,7 @@
 module Player where
 
 import Reflex.Class (Reflex, Event, MonadHold, mergeList)
+import Reflex.Dynamic (Dynamic)
 
 import Control.Monad.Fix (MonadFix)
 import Data.Functor.Identity (Identity)
@@ -36,7 +37,7 @@ mkPlayer ::
   ) =>
   PlayerControls t -> -- ^ controls
   Event t Int -> -- ^ received damage
-  m (Event t (), Event t (DMap KThing Identity), Thing t)
+  m (Event t (), Event t (DMap KThing Identity), Thing t (Dynamic t))
 mkPlayer pc eDamage = do
   let
     eTick :: Event t (NonEmpty Action)

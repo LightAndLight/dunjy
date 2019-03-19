@@ -1,42 +1,38 @@
 {-# language RankNTypes #-}
 module Tile where
 
-import Reflex.Class (Reflex, fmapMaybe)
-import Reflex.Dynamic (Dynamic, distributeMapOverDynPure)
-import Data.Functor.Identity (Identity)
+import Reflex.Class (Reflex)
+import Reflex.Dynamic (Dynamic)
+import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
+import Data.Set (Set)
+
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Pos
 
-data Tile f occ
+data Tile t f
   = Tile
-  { _tileOccupants :: f [occ]
+  { _tileOccupants :: f (Set Int)
   }
 
-distTile ::
-  Applicative m =>
-  (forall x. f x -> m (g x)) ->
-  Tile f occ ->
-  m (Tile g occ)
-distTile fun (Tile a) = Tile <$> fun a
-
-distTileI :: Applicative f => Tile f occ -> f (Tile Identity occ)
-distTileI = distTile (fmap pure)
+distTileD ::
+  Reflex t =>
+  Tile t (Dynamic t) ->
+  Dynamic t (Tile t Identity)
+distTileD (Tile d) = Tile . Identity <$> d
 
 newTileAt ::
-  Reflex t =>
-  Dynamic t (Map Int (Positioned t a)) ->
+  Functor f =>
+  f (Map Int (Pos, a)) -> -- ^ positions of things
   Pos ->
-  Tile (Dynamic t) a
+  Tile t f
 newTileAt dThings pos =
   Tile
-  { _tileOccupants = do
-      dThings >>= \things ->
-        -- Dynamic [(Thing, Pos)]
-        -- filter to only the things that are here
-        fmap (foldr (\(t, p) b -> if p == pos then t : b else b) []) .
-        -- distribute
-        distributeMapOverDynPure $
-        -- tag each position with the thing
-        (\(Positioned thing dPos) -> (,) thing <$> dPos) <$> things
+  { _tileOccupants =
+      Map.foldrWithKey
+        (\k (p, _) b -> if p == pos then Set.insert k b else b)
+        Set.empty <$>
+      dThings
   }

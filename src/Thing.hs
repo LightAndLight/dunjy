@@ -6,7 +6,8 @@
 {-# language TemplateHaskell #-}
 module Thing where
 
-import Reflex.Class ((<@>), Reflex, Event, MonadHold, fmapMaybe, current)
+import Reflex.Class
+  ((<@>), Reflex, Event, MonadHold, fmapMaybe, current, coerceDynamic)
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
 import Control.Monad.Fix (MonadFix)
@@ -39,25 +40,36 @@ runMove dir dist pos =
     D -> pos & posY %~ (+ dist)
     DL -> pos & posY %~ (+ dist) & posX %~ subtract dist
 
-data Thing t
+data Thing t f
   = Thing
-  { _thingSprite :: Dynamic t Char
-  , _thingHealth :: Dynamic t Int
-  , _thingStatus :: Dynamic t Status
+  { _thingSprite :: f Char
+  , _thingHealth :: f Int
+  , _thingStatus :: f Status
   , _thingAction :: Event t (NonEmpty Action)
   }
+
+distThingD ::
+  Reflex t =>
+  Thing t (Dynamic t) ->
+  Dynamic t (Thing t Identity)
+distThingD (Thing a b c d) =
+  Thing <$>
+  coerceDynamic a <*>
+  coerceDynamic b <*>
+  coerceDynamic c <*>
+  pure d
 
 mkPos ::
   forall t m.
   (Reflex t, MonadHold t m, MonadFix m) =>
-  Dynamic t (Level Identity (Thing t)) ->
+  Dynamic t (Level t Identity) ->
   Event t (NonEmpty Action) ->
   Pos ->
   m (Dynamic t Pos)
 mkPos dLevel eAction initialPos =
   foldDyn goPos initialPos $ (,) <$> current dLevel <@> eAction
   where
-    goPos :: (Level Identity (Thing t), NonEmpty Action) -> Pos -> Pos
+    goPos :: (Level t Identity, NonEmpty Action) -> Pos -> Pos
     goPos (level, acts) p =
       foldr
         (\a b ->
@@ -87,7 +99,7 @@ mkThing ::
   Dynamic t Char -> -- ^ sprite
   Event t Int -> -- ^ damage
   Event t (NonEmpty Action) ->
-  m (Thing t)
+  m (Thing t (Dynamic t))
 mkThing health dSprite eDamage eAction = do
   dHealth <- foldDyn subtract health eDamage
   dStatus <-
