@@ -168,8 +168,7 @@ playScreen eQuit =
 
     rec
       level <- newLevel 80 80 $ \x y -> pure (newTileAt dMobs $ Pos x y)
-      -- let dLevel = distLevelI level
-      let dLevel = pure $ Level 80 80 $ Tiles $ Vector.replicate (80*80) (Tile $ pure [])
+      let dLevel = distLevelD level
 
       (eTick, _, playerThing) <-
         mkPlayer
@@ -199,8 +198,7 @@ playScreen eQuit =
              (^. posThing.thingStatus)) <$>
           dMobs
 
-      let dMobs :: Dynamic t (Map Int (Positioned t (Thing t))) = pure mempty
-{-
+      -- let dMobs :: Dynamic t (Map Int (Positioned t (Thing t))) = pure mempty
       dMobs :: Dynamic t (Map Int (Positioned t (Thing t))) <-
         listHoldWithKey
           mempty
@@ -221,7 +219,6 @@ playScreen eQuit =
               thing <- mkThing 10 (pure 'Z') never eAction
               p <- mkPos dLevel (_thingAction thing) pos
               pure $ Positioned thing p)
--}
 
     pure
       ( ReflexBrickApp
