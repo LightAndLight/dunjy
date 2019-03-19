@@ -1,3 +1,4 @@
+{-# language BangPatterns #-}
 {-# language TypeFamilies #-}
 module Movement where
 
@@ -7,11 +8,16 @@ import Data.Dependent.Map (DMap)
 import Data.Foldable (foldl')
 import Data.Functor.Identity (Identity)
 import Data.Map (Map)
+import Data.Set (Set)
 
+import qualified Algebra.Graph.AdjacencyMap as Graph
+  (edgeList, vertexSet)
+import qualified Algebra.Graph.AdjacencyMap.Algorithm as Graph (scc)
 import qualified Algebra.Graph.Class as Graph
 import qualified Algebra.Graph.NonEmpty.AdjacencyMap as NonEmpty
-import qualified Algebra.Graph.AdjacencyMap.Algorithm as Graph (scc, topSort)
+import qualified Algebra.Graph.ToGraph as Graph (reachable)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Action
 import Pos
@@ -66,13 +72,29 @@ runMoves am = foldl' go mempty order
   where
     sccs = Graph.scc am
 
-    -- scc produces an acyclic graph, so topSort always succeeds
-    Just order = Graph.topSort sccs
+    roots :: Set (NonEmpty.AdjacencyMap Node)
+    roots =
+      foldr
+        (\(_, v) vs -> Set.delete v vs)
+        (Graph.vertexSet sccs)
+        (Graph.edgeList sccs)
 
-    go :: Map ThingType Pos -> NonEmpty.AdjacencyMap Node -> Map ThingType Pos
-    go rest g =
-      -- if any vertex cannot be updated to a new position, then that cycle
-      -- causes no position changes
-      case traverse (\(Node k p) -> (,) k <$> p) (NonEmpty.vertexList1 g) of
-        Nothing -> rest
-        Just newPositions -> foldr (\(k, v) -> Map.insert k v) rest newPositions
+    order :: [[NonEmpty.AdjacencyMap Node]]
+    order = foldr (\a b -> Graph.reachable a sccs : b) [] roots
+
+    go ::
+      Map ThingType Pos ->
+      [NonEmpty.AdjacencyMap Node] ->
+      Map ThingType Pos
+    go !acc [] = acc
+    go !acc (root : rest) =
+      let
+        macc' =
+          -- if any vertex cannot be updated to a new position, then that cycle
+          -- causes no position changes
+          foldr (\(k, v) -> Map.insert k v) acc <$>
+          traverse (\(Node k p) -> (,) k <$> p) (NonEmpty.vertexList1 root)
+      in
+        case macc' of
+          Nothing -> acc
+          Just acc' -> go acc' rest
