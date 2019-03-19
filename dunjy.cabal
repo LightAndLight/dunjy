@@ -27,10 +27,12 @@ library
                      , Random
                      , Tile
                      , Level
+                     , Movement
   build-depends:       base ^>=4.12.0.0
                      , reflex ^>=0.5
                      , reflex-basic-host ^>=0.1
                      , reflex-brick ^>=0.1
+                     , algebraic-graphs ^>= 0.3
                      , brick ^>=0.46
                      , concurrent-supply ^>=0.1
                      , containers ^>=0.6
@@ -57,4 +59,17 @@ executable dunjy
                      , brick ^>=0.46
   hs-source-dirs:      app
   ghc-options:         -threaded -Wall -Werror
+  default-language:    Haskell2010
+
+test-suite dunjy-tests
+  type: exitcode-stdio-1.0
+  hs-source-dirs:      test
+  build-depends:       base ^>=4.12.0.0
+                     , dunjy
+                     , algebraic-graphs
+                     , containers
+                     , dependent-map
+                     , hspec
+  ghc-options:         -Wall -Werror
+  main-is: Main.hs
   default-language:    Haskell2010
