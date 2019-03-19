@@ -87,8 +87,8 @@ drawLevel (Level w h _) = backgroundFill w h
 makeAppState ::
   Reflex t =>
   Level t (Dynamic t) ->
-  Positioned t (Thing t (Dynamic t)) ->
-  Dynamic t (Map ThingType (Pos, Thing t (Dynamic t))) ->
+  Positioned t (Thing t) ->
+  Dynamic t (Map ThingType (Pos, Thing t)) ->
   Dynamic t (ReflexBrickAppState n)
 makeAppState level player dMobs =
   (\(Pos x y) psprite mobs ->
@@ -223,7 +223,7 @@ playScreen eQuit =
              (^. posThing.thingStatus)) <$>
           dMobs
 
-      dMobs :: Dynamic t (Map ThingType (Positioned t (Thing t (Dynamic t)))) <-
+      dMobs :: Dynamic t (Map ThingType (Positioned t (Thing t))) <-
         fmap (Map.insert TPlayer player) <$>
         listHoldWithKey
           mempty
@@ -247,7 +247,7 @@ playScreen eQuit =
               pure $ Positioned thing p)
 
       let
-        dMobs' :: Dynamic t (Map ThingType (Pos, Thing t (Dynamic t))) =
+        dMobs' :: Dynamic t (Map ThingType (Pos, Thing t)) =
           joinDynThroughMap (fmap (\(Positioned t p) -> (,) <$> p <*> pure t) <$> dMobs)
 
     pure

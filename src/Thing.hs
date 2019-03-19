@@ -7,7 +7,7 @@
 module Thing where
 
 import Reflex.Class
-  ((<@>), Reflex, Event, MonadHold, fmapMaybe, current, coerceDynamic)
+  ((<@>), Reflex, Event, MonadHold, fmapMaybe, current)
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
 import Control.Monad.Fix (MonadFix)
@@ -39,24 +39,13 @@ runMove dir dist pos =
     D -> pos & posY %~ (+ dist)
     DL -> pos & posY %~ (+ dist) & posX %~ subtract dist
 
-data Thing t f
+data Thing t
   = Thing
-  { _thingSprite :: f Char
-  , _thingHealth :: f Int
-  , _thingStatus :: f Status
+  { _thingSprite :: Dynamic t Char
+  , _thingHealth :: Dynamic t Int
+  , _thingStatus :: Dynamic t Status
   , _thingAction :: Event t (NonEmpty Action)
   }
-
-distThingD ::
-  Reflex t =>
-  Thing t (Dynamic t) ->
-  Dynamic t (Thing t Identity)
-distThingD (Thing a b c d) =
-  Thing <$>
-  coerceDynamic a <*>
-  coerceDynamic b <*>
-  coerceDynamic c <*>
-  pure d
 
 mkPos ::
   forall t m.
@@ -92,7 +81,7 @@ mkThing ::
   Dynamic t Char -> -- ^ sprite
   Event t Int -> -- ^ damage
   Event t (NonEmpty Action) ->
-  m (Thing t (Dynamic t))
+  m (Thing t)
 mkThing health dSprite eDamage eAction = do
   dHealth <- foldDyn subtract health eDamage
   dStatus <-
