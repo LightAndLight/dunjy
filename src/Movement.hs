@@ -4,6 +4,7 @@ module Movement where
 
 import Algebra.Graph.AdjacencyMap (AdjacencyMap)
 import Algebra.Graph.Class (Graph, Vertex)
+import Control.Monad.State (execState, gets, modify)
 import Data.Foldable (foldl')
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
@@ -26,11 +27,12 @@ import ThingType
 data Node
   = Node
   { _nodeId :: !ThingType
+  , _nodeCurrentPos :: !Pos
   , _nodeNewPos :: !(Maybe Pos)
   }
   deriving Show
-instance Eq Node where; Node a _ == Node b _ = a == b
-instance Ord Node where; compare (Node a _) (Node b _) = compare a b
+instance Eq Node where; Node a _ _ == Node b _ _ = a == b
+instance Ord Node where; compare (Node a _ _) (Node b _ _) = compare a b
 
 -- invariant: each Pos can only contain one Thing
 buildGraph ::
@@ -46,14 +48,21 @@ buildGraph free m = res
         (\k (pos, maction) (restPosMap, restGraph) ->
            case maction of
              Nothing ->
-               let n = Node k Nothing in
+               let
+                 n = Node { _nodeId = k, _nodeCurrentPos = pos, _nodeNewPos = Nothing }
+               in
                ( Map.insert pos n restPosMap
                , Graph.overlay (Graph.vertex n) restGraph
                )
              Just actions ->
                let
-                 pos' = foldl runMove' pos actions
-                 n = Node k $ if free pos' && pos /= pos' then Just pos' else Nothing
+                 pos' = foldl' runMove' pos actions
+                 n =
+                   Node
+                   { _nodeId = k
+                   , _nodeCurrentPos = pos
+                   , _nodeNewPos = if free pos' && pos /= pos' then Just pos' else Nothing
+                   }
                in
                  ( Map.insert pos n restPosMap
                  , case Map.lookup pos' posMap of
@@ -68,7 +77,7 @@ buildGraph free m = res
 runMoves ::
   AdjacencyMap Node ->
   Map ThingType Pos
-runMoves am = foldl' go mempty order
+runMoves am = snd $ foldl' go (mempty, mempty) order
   where
     sccs = Graph.scc am
 
@@ -83,21 +92,27 @@ runMoves am = foldl' go mempty order
     order = foldr (\a b -> Graph.reachable a sccs : b) [] roots
 
     go ::
-      Map ThingType Pos ->
+      (Set Pos, Map ThingType Pos) ->
       [NonEmpty.AdjacencyMap Node] ->
-      Map ThingType Pos
-    go !acc [] = acc
-    go !acc (root : rest) =
-      let
-        macc' =
-          -- if any vertex cannot be updated to a new position, then that cycle
-          -- causes no position changes
-          foldr (\(k, v) -> Map.insert k v) acc <$>
-          traverse (\(Node k p) -> (,) k <$> p) (NonEmpty.vertexList1 root)
-      in
-        case macc' of
-          Nothing -> acc
-          Just acc' -> go acc' rest
+      (Set Pos, Map ThingType Pos)
+    go = foldl' go'
+      where
+        go' ::
+          (Set Pos, Map ThingType Pos) ->
+          NonEmpty.AdjacencyMap Node ->
+          (Set Pos, Map ThingType Pos)
+        go' (!occupied, !acc) root =
+          flip execState (occupied, acc) $
+          traverse
+            (\node -> do
+              seen <- gets fst
+              case _nodeNewPos node of
+                Just p ->
+                  if p `Set.notMember` seen
+                  then modify $ \(s, m) -> (Set.insert p s, Map.insert (_nodeId node) p m)
+                  else modify $ \(s, m) -> (Set.insert (_nodeCurrentPos node) s, m)
+                Nothing -> modify $ \(s, m) -> (Set.insert (_nodeCurrentPos node) s, m))
+            (NonEmpty.vertexList1 root)
 
 moveThings ::
   (Pos -> Bool) ->

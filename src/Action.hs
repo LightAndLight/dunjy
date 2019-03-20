@@ -27,6 +27,16 @@ data Dir
   | DL
   deriving (Eq, Show, Ord, Enum, Bounded)
 
+reverseDir :: Dir -> Dir
+reverseDir L = R
+reverseDir UL = DR
+reverseDir U = D
+reverseDir UR = DL
+reverseDir R = L
+reverseDir DR = UL
+reverseDir D = U
+reverseDir DL = UR
+
 instance Random Dir where
   randomR (lo, hi) g = (toEnum a, g')
     where
