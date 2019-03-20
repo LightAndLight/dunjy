@@ -11,21 +11,14 @@ import Reflex.Class (Reflex, Event, MonadHold, fmapMaybe)
 import Reflex.Dynamic (Dynamic, holdDyn, foldDyn, updated)
 
 import Control.Monad.Fix (MonadFix)
-import Control.Monad.State (evalState, get, put)
 import Data.Dependent.Map (DMap)
 import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
-import Data.Map (Map)
-import Data.List.NonEmpty (NonEmpty)
-import Data.Traversable (for)
 import Lens.Micro ((%~))
 import Lens.Micro.TH (makeLenses)
 
-import qualified Data.Set as Set
-
 import Action
 import Pos
-import ThingType
 
 data Status
   = Alive
@@ -47,22 +40,6 @@ runMove dir dist pos =
 runMove' :: Pos -> Move -> Pos
 runMove' pos (Relative dir) = runMove dir 1 pos
 runMove' _ (Absolute pos) = pos
-
-moveThings :: Map ThingType (Pos, NonEmpty Move) -> Map ThingType (Maybe Pos)
-moveThings m =
-  flip evalState Set.empty .
-  for m $ \(pos, mvs) -> do
-    seen <- get
-    let
-      newPos :: Pos
-      newPos =
-        -- if a movement tick would result in a Thing landing on another
-        -- Thing (that may have moved this tick), then it doesn't move
-        let res = foldl runMove' pos mvs in
-        if res `Set.member` seen
-          then pos
-          else res
-    Just newPos <$ put (Set.insert newPos seen)
 
 data Thing t
   = Thing

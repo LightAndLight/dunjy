@@ -1,4 +1,5 @@
 {-# options_ghc -fno-warn-unused-matches #-}
+{-# language BangPatterns #-}
 {-# language GADTs #-}
 {-# language TemplateHaskell #-}
 module Action where

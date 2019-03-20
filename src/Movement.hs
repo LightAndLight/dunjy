@@ -4,9 +4,8 @@ module Movement where
 
 import Algebra.Graph.AdjacencyMap (AdjacencyMap)
 import Algebra.Graph.Class (Graph, Vertex)
-import Data.Dependent.Map (DMap)
 import Data.Foldable (foldl')
-import Data.Functor.Identity (Identity)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Set (Set)
 
@@ -37,15 +36,15 @@ instance Ord Node where; compare (Node a _) (Node b _) = compare a b
 buildGraph ::
   (Graph g, Vertex g ~ Node) =>
   (Pos -> Bool) ->
-  Map ThingType (Pos, DMap Action Identity) ->
+  Map ThingType (Pos, Maybe (NonEmpty Move)) ->
   g
 buildGraph free m = res
   where
     posMap :: Map Pos Node
     (posMap, res) =
       Map.foldrWithKey
-        (\k (pos, action) (restPosMap, restGraph) ->
-           case moveAction action of
+        (\k (pos, maction) (restPosMap, restGraph) ->
+           case maction of
              Nothing ->
                let n = Node k Nothing in
                ( Map.insert pos n restPosMap
@@ -102,6 +101,6 @@ runMoves am = foldl' go mempty order
 
 moveThings ::
   (Pos -> Bool) ->
-  Map ThingType (Pos, DMap Action Identity) ->
+  Map ThingType (Pos, Maybe (NonEmpty Move)) ->
   Map ThingType Pos
 moveThings free = runMoves . buildGraph free

@@ -28,7 +28,7 @@ import Reflex.Workflow (Workflow(..), workflow)
 
 import Brick.AttrMap (attrMap)
 import Brick.Widgets.Border (border)
-import Brick.Widgets.Core ((<+>), raw, txt, translateBy)
+import Brick.Widgets.Core ((<+>), (<=>), raw, txt, translateBy)
 import Brick.Widgets.Dialog (dialog, renderDialog)
 import Brick.Types (Location(..))
 import Control.Applicative ((<|>))
@@ -37,7 +37,6 @@ import Control.Monad.Reader (MonadReader, runReaderT, asks)
 import Data.Dependent.Map (DMap)
 import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity)
-import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
@@ -51,6 +50,7 @@ import qualified Data.Text as Text
 
 import Action
 import Level
+import Movement
 import Thing
 import ThingType
 import Tile
@@ -99,7 +99,8 @@ makeAppState level dMobs =
    ReflexBrickAppState
    { _rbWidgets =
      [ border (raw $ drawLevel level) <+>
-       border (txt $ "[s] Give me something to fight!")
+       (border (txt $ "[s] Give me something to fight!") <=>
+        border (txt $ "Mobs: " <> Text.pack (show $ Map.size mobs)))
      ] <>
      foldr
        (\(Pos x y, s) b ->
@@ -240,10 +241,10 @@ playScreen eQuit =
              snd) <$>
           dMobs
 
-        eMobsMoved' :: Event t (Map ThingType (Pos, Maybe (NonEmpty Move)))
-        eMobsMoved' =
+        eMobsMoved :: Event t (Map ThingType (Maybe Pos))
+        eMobsMoved =
           attachWith
-            (\a b -> b <> fmap (Nothing <$) a)
+            (\a b -> fmap Just . moveThings (const True) $ b <> fmap (Nothing <$) a)
             (current dMobs)
             (switchDyn $
              mergeMap .
@@ -252,14 +253,6 @@ playScreen eQuit =
                   (,) p <$>
                   fmapMaybe (Just . moveAction) (_thingAction t)) <$>
              dMobs)
-
-        eMobsMoved :: Event t (Map ThingType (Maybe Pos))
-        eMobsMoved =
-          switchDyn $
-          fmap moveThings .
-          mergeMap .
-          fmap (\(p, t) -> (,) p <$> fmapMaybe moveAction (_thingAction t)) <$>
-          dMobs
 
       dMobs :: Dynamic t (Map ThingType (Pos, Thing t)) <-
         listHoldWithKey
