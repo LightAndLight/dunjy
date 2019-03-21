@@ -112,7 +112,26 @@ main =
           ]
 
         runMoves graph `shouldBe` mempty
-      it "moving to the same place" $
+      it "moving to the same place D DL" $ do
+        let freePositions = const True
+        let
+          actions =
+            Map.fromList
+            [ (TPlayer, (Pos 0 0, Just [Relative D]))
+            , (TThing 0, (Pos 1 0, Just [Relative DL]))
+            ]
+
+          graph :: AdjacencyMap Node
+          graph = buildGraph freePositions actions
+
+        Graph.scc graph `shouldBe`
+          Graph.vertices
+          [ NonEmpty.vertex $ Node TPlayer (Pos 0 0) (Just $ Pos 0 1)
+          , NonEmpty.vertex $ Node (TThing 0) (Pos 1 0) (Just $ Pos 0 1)
+          ]
+
+        runMoves graph `shouldBe` Map.singleton TPlayer (Pos 0 1)
+      it "prop - moving to the same place" $
         require prop_sameDestination
 
 prop_sameDestination :: Property

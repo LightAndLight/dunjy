@@ -13,7 +13,8 @@ import Reflex.Adjustable.Class (Adjustable)
 import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold
   , select, never, mergeWith, mergeMap, fmapMaybe
-  , attachWith
+  , attachWith, holdDyn
+  , (<@>)
   )
 import Reflex.Collection (listHoldWithKey)
 import Reflex.Dynamic
@@ -93,14 +94,16 @@ makeAppState ::
   Reflex t =>
   Level t (Dynamic t) ->
   Dynamic t (Map ThingType (Pos, Thing t)) ->
+  Dynamic t [String] ->
   Dynamic t (ReflexBrickAppState n)
-makeAppState level dMobs =
-  (\mobs ->
+makeAppState level dMobs dMessage =
+  (\mobs msg ->
    ReflexBrickAppState
    { _rbWidgets =
      [ border (raw $ drawLevel level) <+>
        (border (txt $ "[s] Give me something to fight!") <=>
-        border (txt $ "Mobs: " <> Text.pack (show $ Map.size mobs)))
+        border (txt $ "Mobs: " <> Text.pack (show $ Map.size mobs)) <=>
+        border (txt . Text.pack . unlines $ msg))
      ] <>
      foldr
        (\(Pos x y, s) b ->
@@ -110,7 +113,8 @@ makeAppState level dMobs =
    , _rbCursorFn = const Nothing
    , _rbAttrMap = attrMap mempty []
    }) <$>
-  joinDynThroughMap (fmap (\(p, t) -> (,) p <$> (^.) t thingSprite) <$> dMobs)
+  joinDynThroughMap (fmap (\(p, t) -> (,) p <$> (^.) t thingSprite) <$> dMobs) <*>
+  dMessage
 
 data Pair a b = Pair a b
   deriving (Eq, Show)
@@ -248,11 +252,15 @@ playScreen eQuit =
             (current dMobs)
             (switchDyn $
              mergeMap .
-             fmap
-               (\(p, t) ->
-                  (,) p <$>
-                  fmapMaybe (Just . moveAction) (_thingAction t)) <$>
+             fmap (\(p, t) -> fmap ((,) p . moveAction) (_thingAction t)) <$>
              dMobs)
+
+      dMessage <-
+        holdDyn [] $
+        (\a b c -> show c : show (fst <$> a) : b) <$>
+        current dMobs <*>
+        current dMessage <@>
+        eMobsMoved
 
       dMobs :: Dynamic t (Map ThingType (Pos, Thing t)) <-
         listHoldWithKey
@@ -262,25 +270,25 @@ playScreen eQuit =
              case k of
                TPlayer -> pure (pos, playerThing)
                TThing{} -> do
-                  eRand <- requesting $ HCons1 RequestRandom HNil1 <$ eTick
-                  let
-                    decision ::
-                      HList1 DunjyResponse (L '[RRandom (Optional Dir)]) ->
-                      DMap Action Identity
-                    decision (HCons1 (ResponseRandom odir) HNil1) =
-                      case odir of
-                        None -> DMap.singleton Wait (pure ())
-                        Some dir -> DMap.singleton (Move dir) (pure ())
+                 eRand <- requesting $ HCons1 RequestRandom HNil1 <$ eTick
+                 let
+                   decision ::
+                     HList1 DunjyResponse (L '[RRandom (Optional Dir)]) ->
+                     DMap Action Identity
+                   decision (HCons1 (ResponseRandom odir) HNil1) =
+                     case odir of
+                       None -> DMap.singleton Wait (pure ())
+                       Some dir -> DMap.singleton (Move dir) (pure ())
 
-                    eAction = decision <$> eRand
+                   eAction = decision <$> eRand
 
-                  thing <- mkThing 10 (pure 'Z') never eAction
+                 thing <- mkThing 10 (pure 'Z') never eAction
 
-                  pure (pos, thing))
+                 pure (pos, thing))
 
     pure
       ( ReflexBrickApp
-        { rbaAppState = makeAppState level dMobs
+        { rbaAppState = makeAppState level dMobs dMessage
         , rbaSuspendAndResume = never
         , rbaHalt = eQuit
         }
