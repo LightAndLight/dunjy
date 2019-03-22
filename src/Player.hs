@@ -15,6 +15,7 @@ import Lens.Micro.TH (makeLenses)
 import qualified Data.Dependent.Map as DMap
 
 import Action
+import Pos
 import Thing
 
 data PlayerControls t
@@ -36,9 +37,10 @@ mkPlayer ::
   ( Reflex t, MonadHold t m, MonadFix m
   ) =>
   PlayerControls t -> -- ^ controls
+  Pos -> -- ^ initial position
   Event t Int -> -- ^ received damage
   m (Event t (), Thing t)
-mkPlayer pc eDamage = do
+mkPlayer pc pos eDamage = do
   let
     eTick :: Event t (DMap Action Identity)
     eTick =
@@ -56,5 +58,5 @@ mkPlayer pc eDamage = do
 
     eAction = eTick
 
-  res <- mkThing 10 (pure '@') eDamage eAction
+  res <- mkThing pos 10 (pure '@') eDamage eAction
   pure (() <$ eTick, res)

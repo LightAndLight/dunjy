@@ -44,6 +44,7 @@ runMove' _ (Absolute pos) = pos
 data Thing t
   = Thing
   { _thingSprite :: Dynamic t Char
+  , _thingPos :: Pos
   , _thingHealth :: Dynamic t Int
   , _thingStatus :: Dynamic t Status
   , _thingAction :: Event t (DMap Action Identity)
@@ -51,12 +52,13 @@ data Thing t
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>
+  Pos -> -- ^ initial position
   Int -> -- ^ initial health
   Dynamic t Char -> -- ^ sprite
   Event t Int -> -- ^ damage
   Event t (DMap Action Identity) -> -- ^ its actions
   m (Thing t)
-mkThing health dSprite eDamage eAction = do
+mkThing pos health dSprite eDamage eAction = do
   dHealth <- foldDyn subtract health eDamage
   dStatus <-
     holdDyn Alive $
@@ -66,6 +68,7 @@ mkThing health dSprite eDamage eAction = do
   pure $
     Thing
     { _thingSprite = dSprite
+    , _thingPos = pos
     , _thingHealth = dHealth
     , _thingStatus = dStatus
     , _thingAction = eAction

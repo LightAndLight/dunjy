@@ -35,12 +35,13 @@ import Control.Applicative ((<|>))
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
+import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
 import Graphics.Vty.Input.Events (Key(..))
-import Lens.Micro ((^.))
+import Lens.Micro ((^.), (.~))
 import System.Random (Random(..), newStdGen)
 
 import qualified Data.Dependent.Map as DMap
@@ -75,7 +76,7 @@ initialState =
   , _rbAttrMap = attrMap mempty []
   }
 
-drawLevel :: Level t (Dynamic t) -> Image
+drawLevel :: Level t -> Image
 drawLevel (Level w h _) = backgroundFill w h
 {-
   go 0 0 mempty mempty
@@ -93,8 +94,8 @@ drawLevel (Level w h _) = backgroundFill w h
 
 makeAppState ::
   Reflex t =>
-  Level t (Dynamic t) ->
-  Dynamic t (Map ThingType (Pos, Thing t)) ->
+  Level t ->
+  Dynamic t (Map ThingType (Thing t)) ->
   Dynamic t (ReflexBrickAppState n)
 makeAppState level dMobs =
   (\mobs ->
@@ -112,7 +113,7 @@ makeAppState level dMobs =
    , _rbCursorFn = const Nothing
    , _rbAttrMap = attrMap mempty []
    }) <$>
-  joinDynThroughMap (fmap (\(p, t) -> (,) p <$> (^.) t thingSprite) <$> dMobs)
+  joinDynThroughMap (fmap (\t -> (,) (t ^. thingPos) <$> (^.) t thingSprite) <$> dMobs)
 
 data Optional a
   = None
@@ -182,7 +183,7 @@ playScreen eQuit =
 
     ePostBuild <- getPostBuild
     rec
-      level <- newLevel 80 30 $ \x y -> pure (newTileAt dMobs $ Pos x y)
+      level <- newLevel 80 30 $ \x y -> pure (newTileAt $ Pos x y)
 
       (eTick, playerThing) <-
         mkPlayer
@@ -197,6 +198,7 @@ playScreen eQuit =
           , _pcDownLeft = () <$ eKeyB
           , _pcWait = () <$ eKeyDot
           })
+          (Pos 0 0)
           never
 
       let
@@ -209,27 +211,29 @@ playScreen eQuit =
           fmap
             (fmapMaybe (\s -> if s == Dead then Just Nothing else Nothing) .
              updated .
-             _thingStatus .
-             snd) <$>
+             _thingStatus) <$>
           dMobs
 
         eMobsMoved :: Event t (Map ThingType (Maybe Pos))
         eMobsMoved =
           attachWith
-            (\a b -> fmap Just . moveThings (const True) $ b <> fmap (Nothing <$) a)
+            (\a b ->
+               fmap Just .
+               moveThings (const True) $
+               b <> fmap (\t -> (t ^. thingPos, Nothing)) a)
             (current dMobs)
             (switchDyn $
              mergeMap .
-             fmap (\(p, t) -> fmap ((,) p . moveAction) (_thingAction t)) <$>
+             fmap (\t -> fmap ((,) (t ^. thingPos) . moveAction) (_thingAction t)) <$>
              dMobs)
 
-      dMobs :: Dynamic t (Map ThingType (Pos, Thing t)) <-
+      dMobs :: Dynamic t (Map ThingType (Thing t)) <-
         listHoldWithKey
           mempty
           (mergeWith (Map.unionWith (<|>)) [eInsertPlayer, eInsertMob, eDeleteMobs, eMobsMoved])
           (\k pos ->
              case k of
-               TPlayer -> pure (pos, playerThing)
+               TPlayer -> pure $ playerThing & thingPos .~ pos
                TThing{} -> do
                  initialDir <- random <$> liftIO newStdGen
                  dRandomDir :: Dynamic t (Optional Dir) <-
@@ -241,9 +245,9 @@ playScreen eQuit =
 
                    eAction = decision <$> updated dRandomDir
 
-                 thing <- mkThing 10 (pure 'Z') never eAction
+                 thing <- mkThing pos 10 (pure 'Z') never eAction
 
-                 pure (pos, thing))
+                 pure thing)
 
     pure
       ( ReflexBrickApp
