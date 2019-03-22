@@ -65,3 +65,6 @@ moveAction =
          MoveTo -> Just $ Absolute a :| foldMap toList acc
          _ -> acc)
     Nothing
+
+meleeAction :: DMap Action Identity -> Maybe Dir
+meleeAction = fmap runIdentity . DMap.lookup Melee

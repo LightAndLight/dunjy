@@ -28,6 +28,8 @@ library
                      , Tile
                      , Level
                      , Movement
+                     , Attack
+                     , Data.Monoid.Action
   build-depends:       base ^>=4.12.0.0
                      , reflex ^>=0.5
                      , reflex-basic-host ^>=0.1

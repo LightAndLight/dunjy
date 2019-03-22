@@ -1,4 +1,5 @@
 {-# language BangPatterns #-}
+{-# language ScopedTypeVariables #-}
 {-# language TypeFamilies #-}
 module Movement where
 
@@ -6,9 +7,11 @@ import Algebra.Graph.AdjacencyMap (AdjacencyMap)
 import Algebra.Graph.Class (Graph, Vertex)
 import Control.Monad.State (execState, gets, modify)
 import Data.Foldable (foldl')
+import Data.Function ((&))
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Set (Set)
+import Lens.Micro ((^.), (?~))
 
 import qualified Algebra.Graph.AdjacencyMap as Graph
   (edgeList, vertexSet)
@@ -36,16 +39,18 @@ instance Ord Node where; compare (Node a _ _) (Node b _ _) = compare a b
 
 -- invariant: each Pos can only contain one Thing
 buildGraph ::
+  HasPos a =>
   (Graph g, Vertex g ~ Node) =>
   (Pos -> Bool) ->
-  Map ThingType (Pos, Maybe (NonEmpty Move)) ->
+  Map ThingType (a, Maybe (NonEmpty Move)) ->
   g
 buildGraph free m = res
   where
     posMap :: Map Pos Node
     (posMap, res) =
       Map.foldrWithKey
-        (\k (pos, maction) (restPosMap, restGraph) ->
+        (\k (thing, maction) (restPosMap, restGraph) ->
+           let pos = thing ^. pos_ in
            case maction of
              Nothing ->
                let
@@ -75,8 +80,10 @@ buildGraph free m = res
         m
 
 runMoves ::
-  AdjacencyMap Node ->
-  Map ThingType Pos
+  forall a.
+  (Monoid a, UpdatePos a) =>
+  AdjacencyMap Node -> -- ^ movement dependency graph
+  Map ThingType a -- ^ position updates
 runMoves am = snd $ foldl' go (mempty, mempty) order
   where
     sccs = Graph.scc am
@@ -92,30 +99,34 @@ runMoves am = snd $ foldl' go (mempty, mempty) order
     order = foldr (\a b -> Graph.reachable a sccs : b) [] roots
 
     go ::
-      (Set Pos, Map ThingType Pos) ->
+      (Set Pos, Map ThingType a) ->
       [NonEmpty.AdjacencyMap Node] ->
-      (Set Pos, Map ThingType Pos)
+      (Set Pos, Map ThingType a)
     go = foldl' go'
       where
         go' ::
-          (Set Pos, Map ThingType Pos) ->
+          (Set Pos, Map ThingType a) ->
           NonEmpty.AdjacencyMap Node ->
-          (Set Pos, Map ThingType Pos)
+          (Set Pos, Map ThingType a)
         go' (!occupied, !acc) root =
           flip execState (occupied, acc) $
           traverse
             (\node -> do
               seen <- gets fst
-              case _nodeNewPos node of
-                Just p ->
-                  if p `Set.notMember` seen
-                  then modify $ \(s, m) -> (Set.insert p s, Map.insert (_nodeId node) p m)
-                  else modify $ \(s, m) -> (Set.insert (_nodeCurrentPos node) s, m)
-                Nothing -> modify $ \(s, m) -> (Set.insert (_nodeCurrentPos node) s, m))
+              modify $ \(s, m) ->
+                case _nodeNewPos node of
+                  Just p ->
+                    if p `Set.notMember` seen
+                    then (Set.insert p s, Map.insert (_nodeId node) (mempty & updatePos_ ?~ p) m)
+                    else (Set.insert (_nodeCurrentPos node) s, m)
+                  Nothing -> (Set.insert (_nodeCurrentPos node) s, m))
             (NonEmpty.vertexList1 root)
 
 moveThings ::
+  ( HasPos a
+  , Monoid b, UpdatePos b
+  ) =>
   (Pos -> Bool) ->
-  Map ThingType (Pos, Maybe (NonEmpty Move)) ->
-  Map ThingType Pos
+  Map ThingType (a, Maybe (NonEmpty Move)) ->
+  Map ThingType b
 moveThings free = runMoves . buildGraph free

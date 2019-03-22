@@ -1,6 +1,7 @@
 {-# language BangPatterns #-}
 {-# language DataKinds #-}
 {-# language FlexibleContexts, TypeFamilies #-}
+{-# language GADTs, RankNTypes #-}
 {-# language LambdaCase #-}
 {-# language OverloadedLists #-}
 {-# language OverloadedStrings #-}
@@ -9,13 +10,13 @@
 {-# language TemplateHaskell #-}
 module Dunjy where
 
-import Reflex.Adjustable.Class (Adjustable)
+import Reflex.Adjustable.Class (Adjustable, sequenceDMapWithAdjust)
 import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold
   , select, never, mergeWith, mergeMap, fmapMaybe
   , attachWith
+  , holdIncremental, incrementalToDynamic, PatchDMap(..), currentIncremental
   )
-import Reflex.Collection (listHoldWithKey)
 import Reflex.Dynamic
   (Dynamic, switchDyn, updated, joinDynThroughMap, current, foldDyn)
 import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
@@ -39,6 +40,7 @@ import Data.Dependent.Map (DMap)
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity(..))
+import Data.Functor.Misc (ComposeMaybe(..), Const2(..), mapWithFunctorToDMap, dmapToMap)
 import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
@@ -50,6 +52,7 @@ import qualified Data.Dependent.Map as DMap
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 
+import Data.Monoid.Action
 import Action
 import Level
 import Movement
@@ -217,10 +220,11 @@ playScreen eQuit =
       eKeyS
 
     let
+      eInsertMob :: Event t (Map ThingType (Maybe (Change t)))
       eInsertMob =
         eRandomPos <&>
         \(HCons1 (ResponseRandom p) (HCons1 (ResponseId i) HNil1)) ->
-          Map.singleton (TThing i) (Just p)
+          Map.singleton (TThing i) (Just $ Insert p $ Health 10)
 
     ePostBuild <- getPostBuild
 
@@ -242,48 +246,58 @@ playScreen eQuit =
           })
           (Pos 0 0)
           dMobs
-          never
 
       let
+        filterActionsWith ::
+          forall b c.
+          (Thing t -> b) ->
+          (DMap Action Identity -> Maybe c) ->
+          Event t (Map ThingType (b, c))
+        filterActionsWith f g =
+          switchDyn $
+           mergeMap .
+           fmap
+             (\t ->
+               fmapMaybe
+                 (fmap ((,) (f t)) . g)
+                 (t ^. thingAction)) <$>
+          dMobs
+
         eActions :: Event t (Map ThingType (DMap Action Identity))
         eActions = switchDyn $ mergeMap . fmap _thingAction <$> dMobs
 
-        eInsertPlayer = Map.singleton TPlayer (Just $ Pos 1 1) <$ ePostBuild
+        -- eMobsMelee :: Event t (Map ThingType ((Pos, Health), Dir))
+        -- eMobsMelee = filterActionsWith (_thingPos &&& _thingHealth) meleeAction
 
-        eDeleteMobs :: Event t (Map ThingType (Maybe Pos))
+        eInsertPlayer :: Event t (Map ThingType (Maybe (Change t)))
+        eInsertPlayer = Map.singleton TPlayer (Just $ Insert (Pos 1 1) (Health 10)) <$ ePostBuild
+
+        eDeleteMobs :: forall x. Event t (Map ThingType (Maybe x))
         eDeleteMobs =
-          switchDyn $
-          mergeMap .
-          fmap
-            (fmapMaybe (\s -> if s == Dead then Just Nothing else Nothing) .
-             updated .
-             _thingStatus) <$>
-          dMobs
+          fmapMaybe (\t -> if t ^. thingHealth <= mempty then Just Nothing else Nothing) <$>
+          updated dMobs
 
-        eMobsMoved :: Event t (Map ThingType (Maybe Pos))
+        eMobsMoved :: Event t (Map ThingType (Maybe (Change t)))
         eMobsMoved =
           attachWith
             (\a b ->
-               fmap Just .
+               fmap (Just . Update) .
                moveThings (const True) $
-               b <> fmap (\t -> (t ^. thingPos, Nothing)) a)
+               b <> fmap (\t -> (t, Nothing)) a)
             (current dMobs)
-            (switchDyn $
-             mergeMap .
-             fmap
-               (\t ->
-                  fmapMaybe
-                    (fmap ((,) (t ^. thingPos) . Just) . moveAction)
-                    (t ^. thingAction)) <$>
-             dMobs)
+            (filterActionsWith id (fmap Just . moveAction))
 
       dMobs :: Dynamic t (Map ThingType (Thing t)) <-
-        listHoldWithKey
+        holdThings
           mempty
-          (mergeWith (Map.unionWith (<|>)) [eInsertPlayer, eInsertMob, eDeleteMobs, eMobsMoved])
-          (\k pos ->
+          (mergeWith
+             (Map.unionWith (<*))
+             [ mergeWith (Map.unionWith (<|>)) [eInsertPlayer, eInsertMob, eDeleteMobs]
+             , eMobsMoved
+             ])
+          (\k pos health ->
              case k of
-               TPlayer -> pure $ playerThing & thingPos .~ pos
+               TPlayer -> pure $ playerThing & thingPos .~ pos & thingHealth .~ health
                TThing{} -> do
                  initialDir <- random <$> liftIO newStdGen
                  dRandomDir :: Dynamic t (Optional Dir) <-
@@ -295,9 +309,15 @@ playScreen eQuit =
 
                    eAction = decision <$> updated dRandomDir
 
-                 thing <- mkThing pos 10 (pure 'Z') never eAction
+                 thing <-
+                   mkThing
+                     pos
+                     health
+                     (pure 'Z')
+                     eAction
 
                  pure thing)
+          (\oldthing upd -> pure $ act upd oldthing)
 
     dActionLog :: Dynamic t [Map ThingType (DMap Action Identity)] <- foldDyn (:) [] eActions
 
@@ -345,3 +365,40 @@ dunjy events =
   runRandomT $
   flip runReaderT events $
   switchReflexBrickApp <$> workflow startScreen
+
+data Change t
+  = Insert Pos Health
+  | Update (UpdateThing t)
+
+holdThings ::
+  forall t m k.
+  (Ord k, Adjustable t m, MonadHold t m, MonadFix m) =>
+  Map k (Pos, Health) ->
+  Event t (Map k (Maybe (Change t))) ->
+  (k -> Pos -> Health -> m (Thing t)) -> -- ^ insert
+  (Thing t -> UpdateThing t -> m (Thing t)) -> -- ^ update
+  m (Dynamic t (Map k (Thing t)))
+holdThings initials ev finsert fupdate = do
+  rec
+    (dm', ePatch') <-
+      sequenceDMapWithAdjust dm $
+      attachWith
+        (\a ->
+           PatchDMap .
+           Map.foldrWithKey
+             (\k v ->
+                DMap.insert
+                  (Const2 k)
+                  (ComposeMaybe $
+                   v >>=
+                   (\case
+                      Insert p h -> Just $ finsert k p h
+                      Update upd -> (\(Identity t) -> fupdate t upd) <$> DMap.lookup (Const2 k) a)))
+             DMap.empty)
+        (currentIncremental dInc)
+        ev
+    dInc <- holdIncremental dm' ePatch'
+  pure $ dmapToMap <$> incrementalToDynamic dInc
+  where
+    dm :: DMap (Const2 k (Thing t)) m
+    dm = mapWithFunctorToDMap $ Map.mapWithKey (\k (p, h) -> finsert k p h) initials

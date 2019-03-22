@@ -45,10 +45,9 @@ mkPlayer ::
   PlayerControls t -> -- ^ controls
   Pos -> -- ^ initial position
   Dynamic t (Map ThingType (Thing t)) -> -- ^ mobs
-  Event t Int -> -- ^ received damage
   m (Event t (), Thing t)
-mkPlayer pc pos dMobs eDamage = do
-  res <- mkThing pos 10 (pure '@') eDamage eAction
+mkPlayer pc pos dMobs = do
+  res <- mkThing pos (Health 10) (pure '@') eAction
   pure (() <$ eTick, res)
   where
     dPlayerPos :: Dynamic t (Maybe Pos)
