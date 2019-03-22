@@ -18,7 +18,7 @@ import Reflex.Class
   )
 import Reflex.Collection (listHoldWithKey)
 import Reflex.Dynamic
-  (Dynamic, switchDyn, updated, joinDynThroughMap, current)
+  (Dynamic, switchDyn, updated, joinDynThroughMap, current, foldDyn)
 import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
 import Reflex.Brick.Events (RBEvent(..))
 import Reflex.Brick.Types (ReflexBrickAppState(..))
@@ -34,16 +34,15 @@ import Brick.Widgets.Dialog (dialog, renderDialog)
 import Brick.Types (Location(..))
 import Control.Applicative ((<|>))
 import Control.Monad.Fix (MonadFix)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
-import Data.Dependent.Map (DMap)
 import Data.Functor ((<&>))
-import Data.Functor.Identity (Identity)
 import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
 import Graphics.Vty.Input.Events (Key(..))
 import Lens.Micro ((^.))
-import System.Random (Random(..))
+import System.Random (Random(..), newStdGen)
 
 import qualified Data.Dependent.Map as DMap
 import qualified Data.Map as Map
@@ -180,6 +179,7 @@ playScreen ::
   , Adjustable t m
   , PostBuild t m
   , MonadReader (EventSelector t (RBEvent () e)) m
+  , MonadIO m
   ) =>
   Event t () ->
   Workflow t m (ReflexBrickApp t ())
@@ -270,17 +270,15 @@ playScreen eQuit =
              case k of
                TPlayer -> pure (pos, playerThing)
                TThing{} -> do
-                 eRand <- requesting $ HCons1 RequestRandom HNil1 <$ eTick
-                 let
-                   decision ::
-                     HList1 DunjyResponse (L '[RRandom (Optional Dir)]) ->
-                     DMap Action Identity
-                   decision (HCons1 (ResponseRandom odir) HNil1) =
-                     case odir of
-                       None -> DMap.singleton Wait (pure ())
-                       Some dir -> DMap.singleton (Move dir) (pure ())
+                 initial <- random <$> liftIO newStdGen
+                 dRandomDir :: Dynamic t (Optional Dir) <-
+                   fmap fst <$> foldDyn (\_ -> random . snd) initial eTick
 
-                   eAction = decision <$> eRand
+                 let
+                   decision None = DMap.singleton Wait (pure ())
+                   decision (Some dir) = DMap.singleton (Move dir) (pure ())
+
+                   eAction = decision <$> updated dRandomDir
 
                  thing <- mkThing 10 (pure 'Z') never eAction
 
@@ -302,6 +300,7 @@ startScreen ::
   , Adjustable t m
   , PostBuild t m
   , MonadReader (EventSelector t (RBEvent () e)) m
+  , MonadIO m
   ) =>
   Workflow t m (ReflexBrickApp t ())
 startScreen =
