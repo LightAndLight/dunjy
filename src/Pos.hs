@@ -10,6 +10,9 @@ data Pos = Pos { _posX :: !Int, _posY :: !Int }
   deriving (Eq, Show, Ord)
 makeLenses ''Pos
 
+subtractPos :: Pos -> Pos -> Pos
+subtractPos (Pos a b) (Pos c d) = Pos (c - a) (d - b)
+
 instance Random Pos where
   randomR ((Pos alo blo), (Pos ahigh bhigh)) g =
     let

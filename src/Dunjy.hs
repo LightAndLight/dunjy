@@ -182,6 +182,7 @@ playScreen eQuit =
           Map.singleton (TThing i) (Just p)
 
     ePostBuild <- getPostBuild
+
     rec
       level <- newLevel 80 30 $ \x y -> pure (newTileAt $ Pos x y)
 
@@ -199,6 +200,7 @@ playScreen eQuit =
           , _pcWait = () <$ eKeyDot
           })
           (Pos 0 0)
+          dMobs
           never
 
       let
@@ -224,7 +226,11 @@ playScreen eQuit =
             (current dMobs)
             (switchDyn $
              mergeMap .
-             fmap (\t -> fmap ((,) (t ^. thingPos) . moveAction) (_thingAction t)) <$>
+             fmap
+               (\t ->
+                  fmapMaybe
+                    (fmap ((,) (t ^. thingPos) . Just) . moveAction)
+                    (t ^. thingAction)) <$>
              dMobs)
 
       dMobs :: Dynamic t (Map ThingType (Thing t)) <-
