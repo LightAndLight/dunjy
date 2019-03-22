@@ -10,18 +10,18 @@
 {-# language TemplateHaskell #-}
 module Dunjy where
 
-import Reflex.Adjustable.Class (Adjustable, sequenceDMapWithAdjust)
+import Reflex.Adjustable.Class (Adjustable)
 import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold
   , select, never, mergeWith, mergeMap, fmapMaybe
   , attachWith
-  , holdIncremental, incrementalToDynamic, PatchDMap(..), currentIncremental
   )
 import Reflex.Dynamic
   (Dynamic, switchDyn, updated, joinDynThroughMap, current, foldDyn)
 import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
 import Reflex.Brick.Events (RBEvent(..))
 import Reflex.Brick.Types (ReflexBrickAppState(..))
+import Reflex.Collection (listHoldWithKey)
 import Reflex.Host.Basic (BasicGuest, BasicGuestConstraints)
 import Reflex.PostBuild.Class (PostBuild, getPostBuild)
 import Reflex.Requester.Class (Requester, Request, Response, requesting)
@@ -40,7 +40,6 @@ import Data.Dependent.Map (DMap)
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity(..))
-import Data.Functor.Misc (ComposeMaybe(..), Const2(..), mapWithFunctorToDMap, dmapToMap)
 import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
@@ -309,14 +308,7 @@ playScreen eQuit =
 
                    eAction = decision <$> updated dRandomDir
 
-                 thing <-
-                   mkThing
-                     pos
-                     health
-                     (pure 'Z')
-                     eAction
-
-                 pure thing)
+                 mkThing pos health (pure 'Z') eAction)
           (\oldthing upd -> pure $ act upd oldthing)
 
     dActionLog :: Dynamic t [Map ThingType (DMap Action Identity)] <- foldDyn (:) [] eActions
@@ -370,6 +362,10 @@ data Change t
   = Insert Pos Health
   | Update (UpdateThing t)
 
+data ChangeI t
+  = InsertI Pos Health
+  | UpdateI (Thing t) (UpdateThing t)
+
 holdThings ::
   forall t m k.
   (Ord k, Adjustable t m, MonadHold t m, MonadFix m) =>
@@ -380,25 +376,25 @@ holdThings ::
   m (Dynamic t (Map k (Thing t)))
 holdThings initials ev finsert fupdate = do
   rec
-    (dm', ePatch') <-
-      sequenceDMapWithAdjust dm $
-      attachWith
-        (\a ->
-           PatchDMap .
-           Map.foldrWithKey
-             (\k v ->
-                DMap.insert
-                  (Const2 k)
-                  (ComposeMaybe $
-                   v >>=
-                   (\case
-                      Insert p h -> Just $ finsert k p h
-                      Update upd -> (\(Identity t) -> fupdate t upd) <$> DMap.lookup (Const2 k) a)))
-             DMap.empty)
-        (currentIncremental dInc)
-        ev
-    dInc <- holdIncremental dm' ePatch'
-  pure $ dmapToMap <$> incrementalToDynamic dInc
-  where
-    dm :: DMap (Const2 k (Thing t)) m
-    dm = mapWithFunctorToDMap $ Map.mapWithKey (\k (p, h) -> finsert k p h) initials
+    dThings <-
+      listHoldWithKey
+      (uncurry InsertI <$> initials)
+      (attachWith
+         (\a ->
+            Map.foldrWithKey
+              (\k v ->
+                 case v of
+                   Nothing -> Map.insert k Nothing
+                   Just (Update upd) ->
+                     case Map.lookup k a of
+                       Nothing -> id
+                       Just res -> Map.insert k . Just $ UpdateI res upd
+                   Just (Insert p h) -> Map.insert k . Just $ InsertI p h)
+              mempty)
+         (current dThings)
+         ev)
+      (\k c ->
+         case c of
+           InsertI p h -> finsert k p h
+           UpdateI t upd -> fupdate t upd)
+  pure dThings
