@@ -28,15 +28,17 @@ import Reflex.Workflow (Workflow(..), workflow)
 
 import Brick.AttrMap (attrMap)
 import Brick.Widgets.Border (border)
-import Brick.Widgets.Core ((<+>), (<=>), raw, txt, translateBy)
+import Brick.Widgets.Core ((<+>), (<=>), raw, txt, translateBy, vBox)
 import Brick.Widgets.Dialog (dialog, renderDialog)
-import Brick.Types (Location(..))
+import Brick.Types (Widget, Location(..))
 import Control.Applicative ((<|>))
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
+import Data.Dependent.Map (DMap)
 import Data.Function ((&))
 import Data.Functor ((<&>))
+import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
@@ -92,18 +94,56 @@ drawLevel (Level w h _) = backgroundFill w h
         go (x+1) y img (line <> Builder.singleton ' ')
 -}
 
+renderActionLog :: Int -> [Map ThingType (DMap Action Identity)] -> Widget n
+renderActionLog limit acts =
+  border . vBox . take limit $ acts >>= renderRound
+  where
+    renderRound :: Map ThingType (DMap Action Identity) -> [Widget n]
+    renderRound = Map.foldrWithKey (\k -> (<>) . renderActions k) []
+
+    renderThingType :: ThingType -> Text
+    renderThingType TPlayer = "the player"
+    renderThingType (TThing n) = "mob " <> Text.pack (show n)
+
+    renderAction :: ThingType -> Action a -> a -> Text
+    renderAction tt k v =
+      case k of
+        Move d ->
+          renderThingType tt <>
+          " moved " <>
+          Text.pack (show d)
+        MoveTo ->
+          renderThingType tt <>
+          " moved to " <>
+          Text.pack (show v)
+        Melee ->
+          renderThingType tt <>
+          " attacked " <>
+          Text.pack (show v)
+        Wait ->
+          renderThingType tt <>
+          " did nothing"
+
+    renderActions :: ThingType -> DMap Action Identity -> [Widget n]
+    renderActions tt =
+      DMap.foldrWithKey
+        (\k (Identity v) rest -> txt (renderAction tt k v) : rest)
+        []
+
 makeAppState ::
   Reflex t =>
   Level t ->
   Dynamic t (Map ThingType (Thing t)) ->
+  Dynamic t [Map ThingType (DMap Action Identity)] ->
   Dynamic t (ReflexBrickAppState n)
-makeAppState level dMobs =
-  (\mobs ->
+makeAppState level dMobs dActionLog =
+  (\mobs actionLog ->
    ReflexBrickAppState
    { _rbWidgets =
      [ border (raw $ drawLevel level) <+>
        (border (txt $ "[s] Give me something to fight!") <=>
-        border (txt $ "Mobs: " <> Text.pack (show $ Map.size mobs)))
+        border (txt $ "Mobs: " <> Text.pack (show $ Map.size mobs)) <=>
+        renderActionLog 10 actionLog)
      ] <>
      foldr
        (\(Pos x y, s) b ->
@@ -113,7 +153,8 @@ makeAppState level dMobs =
    , _rbCursorFn = const Nothing
    , _rbAttrMap = attrMap mempty []
    }) <$>
-  joinDynThroughMap (fmap (\t -> (,) (t ^. thingPos) <$> (^.) t thingSprite) <$> dMobs)
+  joinDynThroughMap (fmap (\t -> (,) (t ^. thingPos) <$> (^.) t thingSprite) <$> dMobs) <*>
+  dActionLog
 
 data Optional a
   = None
@@ -204,6 +245,9 @@ playScreen eQuit =
           never
 
       let
+        eActions :: Event t (Map ThingType (DMap Action Identity))
+        eActions = switchDyn $ mergeMap . fmap _thingAction <$> dMobs
+
         eInsertPlayer = Map.singleton TPlayer (Just $ Pos 1 1) <$ ePostBuild
 
         eDeleteMobs :: Event t (Map ThingType (Maybe Pos))
@@ -255,9 +299,11 @@ playScreen eQuit =
 
                  pure thing)
 
+    dActionLog :: Dynamic t [Map ThingType (DMap Action Identity)] <- foldDyn (:) [] eActions
+
     pure
       ( ReflexBrickApp
-        { rbaAppState = makeAppState level dMobs
+        { rbaAppState = makeAppState level dMobs dActionLog
         , rbaSuspendAndResume = never
         , rbaHalt = eQuit
         }

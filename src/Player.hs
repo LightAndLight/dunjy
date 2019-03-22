@@ -63,7 +63,7 @@ mkPlayer pc pos dMobs eDamage = do
            Just ppos ->
              foldr
                (\t ->
-                  case subtractPos (t ^. thingPos) ppos of
+                  case subtractPos ppos (t ^. thingPos) of
                     Pos (-1) 0 -> Set.insert L
                     Pos (-1) (-1) -> Set.insert UL
                     Pos 0 (-1) -> Set.insert U
@@ -78,9 +78,10 @@ mkPlayer pc pos dMobs eDamage = do
       dPlayerPos <*>
       dMobs
 
-    attackDir d e = d <$ gate (Set.member d <$> bAdjacentMobs) e
+    attackDir d l = d <$ gate (Set.member d <$> bAdjacentMobs) (pc ^. l)
+    moveDir d l = Move d :=> () <$ gate (Set.notMember d <$> bAdjacentMobs) (pc ^. l)
 
-    attackDirs =
+    moveDirs =
       [ (L, pcLeft)
       , (UL, pcUpLeft)
       , (U, pcUp)
@@ -94,17 +95,9 @@ mkPlayer pc pos dMobs eDamage = do
     eTick :: Event t (DMap Action Identity)
     eTick =
       merge . DMap.fromList $
-      [ Move L  :=> () <$ (pc ^. pcLeft)
-      , Move UL :=> () <$ (pc ^. pcUpLeft)
-      , Move U  :=> () <$ (pc ^. pcUp)
-      , Move UR :=> () <$ (pc ^. pcUpRight)
-      , Move R  :=> () <$ (pc ^. pcRight)
-      , Move DR :=> () <$ (pc ^. pcDownRight)
-      , Move D  :=> () <$ (pc ^. pcDown)
-      , Move DL :=> () <$ (pc ^. pcDownLeft)
-      , Wait :=> (pc ^. pcWait)
-      , Melee :=>
-        leftmost ((\(d, l) -> attackDir d (pc ^. l)) <$> attackDirs)
+      fmap (uncurry moveDir) moveDirs <>
+      [ Wait :=> (pc ^. pcWait)
+      , Melee :=> leftmost (uncurry attackDir <$> moveDirs)
       ]
 
     eAction = eTick
