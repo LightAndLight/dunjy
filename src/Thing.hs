@@ -16,6 +16,9 @@ import Reflex.Class
   (Reflex, Event, MonadHold, EventSelector, coerceEvent, fan, select, coerceDynamic)
 import Reflex.Dynamic (Dynamic, holdDyn)
 
+import Control.Lens.Lens (Lens', lens)
+import Control.Lens.Setter ((%~))
+import Control.Lens.TH (makeLenses)
 import Control.Monad.Fix (MonadFix)
 import Data.Coerce (coerce)
 import Data.Dependent.Map (DMap)
@@ -25,8 +28,6 @@ import Data.GADT.Show.TH (deriveGShow)
 import Data.Monoid (Sum(..))
 import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
-import Lens.Micro ((%~), Lens', lens)
-import Lens.Micro.TH (makeLenses)
 
 import qualified Data.Dependent.Map as DMap
 
@@ -95,7 +96,7 @@ data Thing t f
   { _thingSprite :: f Char
   , _thingPos :: f Pos
   , _thingHealth :: f Health
-  , _thingAction :: Event t (DMap Action Identity)
+  , _thingAction :: Event t Action
   }
 
 sequenceThing :: Reflex t => Thing t (Dynamic t) -> Dynamic t (Thing t Identity)
@@ -113,7 +114,7 @@ mkThing ::
   Pos -> -- ^ initial position
   Health -> -- ^ initial health
   Dynamic t Char -> -- ^ sprite
-  Event t (DMap Action Identity) -> -- ^ its actions
+  Event t Action -> -- ^ its action
   Event t Updates -> -- ^ update event
   m (Thing t (Dynamic t))
 mkThing pos health dSprite eAction eUpdate = do

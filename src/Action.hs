@@ -1,18 +1,8 @@
-{-# options_ghc -fno-warn-unused-matches #-}
-{-# language BangPatterns #-}
-{-# language GADTs #-}
 {-# language TemplateHaskell #-}
 module Action where
 
-import Data.Dependent.Map (DMap)
-import Data.Foldable (toList)
-import Data.Functor.Identity (Identity(..))
-import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
-import Data.GADT.Show.TH (deriveGShow)
-import Data.List.NonEmpty (NonEmpty(..))
+import Control.Lens.TH (makePrisms)
 import System.Random (Random(..))
-
-import qualified Data.Dependent.Map as DMap
 
 import Pos
 
@@ -44,27 +34,15 @@ instance Random Dir where
 
   random = randomR (minBound, maxBound)
 
-data Move = Relative !Dir | Absolute !Pos
+data Move
+  = Relative !Dir
+  | Absolute !Pos
   deriving (Eq, Show, Ord)
+makePrisms ''Move
 
-data Action a where
-  Move :: !Dir -> Action ()
-  MoveTo :: Action Pos
-  Wait :: Action ()
-  Melee :: Action Dir
-deriveGEq ''Action
-deriveGCompare ''Action
-deriveGShow ''Action
-
-moveAction :: DMap Action Identity -> Maybe (NonEmpty Move)
-moveAction =
-  DMap.foldrWithKey
-    (\action (Identity a) acc ->
-       case action of
-         Move dir -> Just $ Relative dir :| foldMap toList acc
-         MoveTo -> Just $ Absolute a :| foldMap toList acc
-         _ -> acc)
-    Nothing
-
-meleeAction :: DMap Action Identity -> Maybe Dir
-meleeAction = fmap runIdentity . DMap.lookup Melee
+data Action
+  = Move !Move
+  | Wait
+  | Melee !Dir
+  deriving (Eq, Show, Ord)
+makePrisms ''Action

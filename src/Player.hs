@@ -3,19 +3,15 @@
 {-# language TemplateHaskell #-}
 module Player where
 
-import Reflex.Class (Reflex, Behavior, Event, MonadHold, merge, leftmost, gate)
+import Reflex.Class (Reflex, Behavior, Event, MonadHold, leftmost, gate)
 import Reflex.Dynamic (Dynamic, current)
 
+import Control.Lens.Getter ((^.))
+import Control.Lens.TH (makeLenses)
 import Control.Monad.Fix (MonadFix)
-import Data.Dependent.Map (DMap)
-import Data.Dependent.Sum (DSum(..))
-import Data.Functor.Identity (Identity)
 import Data.Map (Map)
 import Data.Set (Set)
-import Lens.Micro ((^.))
-import Lens.Micro.TH (makeLenses)
 
-import qualified Data.Dependent.Map as DMap
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -80,7 +76,7 @@ initPlayer pc dMobPositions =
       dMobPositions
 
     attackDir d l = d <$ gate (Set.member d <$> bAdjacentMobs) (pc ^. l)
-    moveDir d l = Move d :=> () <$ gate (Set.notMember d <$> bAdjacentMobs) (pc ^. l)
+    moveDir d l = Move (Relative d) <$ gate (Set.notMember d <$> bAdjacentMobs) (pc ^. l)
 
     moveDirs =
       [ (L, pcLeft)
@@ -93,12 +89,12 @@ initPlayer pc dMobPositions =
       , (DL, pcDownLeft)
       ]
 
-    eTick :: Event t (DMap Action Identity)
+    eTick :: Event t Action
     eTick =
-      merge . DMap.fromList $
+      leftmost $
       fmap (uncurry moveDir) moveDirs <>
-      [ Wait :=> (pc ^. pcWait)
-      , Melee :=> leftmost (uncurry attackDir <$> moveDirs)
+      [ Wait <$ (pc ^. pcWait)
+      , Melee <$> leftmost (uncurry attackDir <$> moveDirs)
       ]
 
     eAction = eTick

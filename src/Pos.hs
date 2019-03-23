@@ -3,7 +3,7 @@ module Pos where
 
 import Reflex.Dynamic (Dynamic)
 
-import Lens.Micro.TH (makeLenses)
+import Control.Lens.TH (makeLenses)
 import System.Random (Random(..))
 
 data Pos = Pos { _posX :: !Int, _posY :: !Int }

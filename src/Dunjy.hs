@@ -35,23 +35,22 @@ import Brick.Widgets.Core ((<+>), (<=>), raw, txt, translateBy, vBox)
 import Brick.Widgets.Dialog (dialog, renderDialog)
 import Brick.Types (Widget, Location(..))
 import Control.Applicative ((<|>), liftA2)
+import Control.Lens.Fold ((^?))
+import Control.Lens.Getter ((^.))
+import Control.Lens.Setter ((?~))
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
-import Data.Dependent.Map (DMap)
 import Data.Function ((&))
 import Data.Functor ((<&>))
-import Data.Functor.Identity (Identity(..))
 import Data.Functor.Misc (Const2(..))
 import Data.Map (Map)
 import Data.Map.Monoidal (MonoidalMap(..))
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
 import Graphics.Vty.Input.Events (Key(..))
-import Lens.Micro ((?~), (^.))
 import System.Random (Random(..), newStdGen)
 
-import qualified Data.Dependent.Map as DMap
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 
@@ -109,29 +108,30 @@ drawLevel (Level w h _) = backgroundFill w h
         go (x+1) y img (line <> Builder.singleton ' ')
 -}
 
-renderActionLog :: Int -> [Map ThingType (DMap Action Identity)] -> Widget n
+renderActionLog :: Int -> [Map ThingType Action] -> Widget n
 renderActionLog limit acts =
   border . vBox . take limit $ acts >>= renderRound
   where
-    renderRound :: Map ThingType (DMap Action Identity) -> [Widget n]
-    renderRound = Map.foldrWithKey (\k -> (<>) . renderActions k) []
+    renderRound :: Map ThingType Action -> [Widget n]
+    renderRound = Map.foldrWithKey (\k -> (:) . renderAction k) []
 
     renderThingType :: ThingType -> Text
     renderThingType TPlayer = "the player"
     renderThingType (TThing n) = "mob " <> Text.pack (show n)
 
-    renderAction :: ThingType -> Action a -> a -> Text
-    renderAction tt k v =
+    renderAction :: ThingType -> Action -> Widget n
+    renderAction tt k =
+      txt $
       case k of
-        Move d ->
+        Move (Relative d) ->
           renderThingType tt <>
           " moved " <>
           Text.pack (show d)
-        MoveTo ->
+        Move (Absolute v) ->
           renderThingType tt <>
           " moved to " <>
           Text.pack (show v)
-        Melee ->
+        Melee v ->
           renderThingType tt <>
           " attacked " <>
           Text.pack (show v)
@@ -139,17 +139,11 @@ renderActionLog limit acts =
           renderThingType tt <>
           " did nothing"
 
-    renderActions :: ThingType -> DMap Action Identity -> [Widget n]
-    renderActions tt =
-      DMap.foldrWithKey
-        (\k (Identity v) rest -> txt (renderAction tt k v) : rest)
-        []
-
 makeAppState ::
   Reflex t =>
   Level t ->
   Dynamic t (Map ThingType (Pos, Char)) -> -- ^ mob position and sprite
-  Dynamic t [Map ThingType (DMap Action Identity)] ->
+  Dynamic t [Map ThingType Action] ->
   Dynamic t (ReflexBrickAppState n)
 makeAppState level dMobs dActionLog =
   (\mobs actionLog ->
@@ -277,7 +271,7 @@ playScreen eQuit =
           dMobPositions
 
       let
-        eActions :: Event t (Map ThingType (DMap Action Identity))
+        eActions :: Event t (Map ThingType Action)
         eActions = switchDyn $ mergeMap . fmap _thingAction <$> dMobs
 
         eMobsDamaged :: Event t (Map ThingType Damage)
@@ -290,7 +284,7 @@ playScreen eQuit =
                 atkDirs) <$>
           (current dMobPositions) <*>
           (current dMobHealth) <@>
-          (fmapMaybeCompose meleeAction eActions)
+          (fmapMaybeCompose (^? _Melee) eActions)
 
         eMobsMoved :: Event t (MonoidalMap ThingType Updates)
         eMobsMoved =
@@ -300,7 +294,7 @@ playScreen eQuit =
                moveThings (const True) $
                Map.mapWithKey (\k p -> (p, Map.lookup k b)) a)
             (current dMobPositions)
-            (fmapMaybeCompose moveAction eActions)
+            (fmapMaybeCompose (^? _Move) eActions)
 
         eMobsUpdated :: Event t (MonoidalMap ThingType Updates)
         eMobsUpdated =
@@ -348,8 +342,8 @@ playScreen eQuit =
                    fmap fst <$> foldDyn (\_ -> random . snd) initialDir eTick
 
                  let
-                   decision None = DMap.singleton Wait (pure ())
-                   decision (Some dir) = DMap.singleton (Move dir) (pure ())
+                   decision None = Wait
+                   decision (Some dir) = Move $ Relative dir
 
                    eAction = decision <$> updated dRandomDir
 
@@ -358,7 +352,7 @@ playScreen eQuit =
 
                  mkThing pos health (pure 'Z') eAction eUpdate)
 
-    dActionLog :: Dynamic t [Map ThingType (DMap Action Identity)] <- foldDyn (:) [] eActions
+    dActionLog :: Dynamic t [Map ThingType Action] <- foldDyn (:) [] eActions
 
     pure
       ( ReflexBrickApp

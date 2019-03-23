@@ -5,13 +5,12 @@ module Movement where
 
 import Algebra.Graph.AdjacencyMap (AdjacencyMap)
 import Algebra.Graph.Class (Graph, Vertex)
+import Control.Lens.Setter ((?~))
 import Control.Monad.State (execState, gets, modify)
 import Data.Foldable (foldl')
 import Data.Function ((&))
-import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Set (Set)
-import Lens.Micro ((?~))
 
 import qualified Algebra.Graph.AdjacencyMap as Graph
   (edgeList, vertexSet)
@@ -41,7 +40,7 @@ instance Ord Node where; compare (Node a _ _) (Node b _ _) = compare a b
 buildGraph ::
   (Graph g, Vertex g ~ Node) =>
   (Pos -> Bool) ->
-  Map ThingType (Pos, Maybe (NonEmpty Move)) ->
+  Map ThingType (Pos, Maybe Move) ->
   g
 buildGraph free m = res
   where
@@ -57,9 +56,9 @@ buildGraph free m = res
                ( Map.insert pos n restPosMap
                , Graph.overlay (Graph.vertex n) restGraph
                )
-             Just actions ->
+             Just action ->
                let
-                 pos' = foldl' runMove' pos actions
+                 pos' = runMove' pos action
                  n =
                    Node
                    { _nodeId = k
@@ -124,6 +123,6 @@ moveThings ::
   ( Monoid b, UpdatePos b
   ) =>
   (Pos -> Bool) ->
-  Map ThingType (Pos, Maybe (NonEmpty Move)) ->
+  Map ThingType (Pos, Maybe Move) ->
   Map ThingType b
 moveThings free = runMoves . buildGraph free
