@@ -14,9 +14,9 @@ import Reflex.Adjustable.Class (Adjustable)
 import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold, FunctorMaybe
   , select, never, mergeWith, mergeMap
-  , attachWith, fanMap, fmapMaybe
+  , fanMap, fmapMaybe
   , coerceEvent, fmapCheap
-  , (<@>)
+  , (<@>), ffilter
   )
 import Reflex.Dynamic
   (Dynamic, switchDyn, updated, distributeMapOverDynPure, current, foldDyn)
@@ -35,7 +35,7 @@ import Brick.Widgets.Core ((<+>), (<=>), raw, txt, translateBy, vBox)
 import Brick.Widgets.Dialog (dialog, renderDialog)
 import Brick.Types (Widget, Location(..))
 import Control.Applicative ((<|>), liftA2)
-import Control.Lens.Fold ((^?))
+import Control.Lens.Fold (folded, notNullOf)
 import Control.Lens.Getter ((^.))
 import Control.Lens.Setter ((?~))
 import Control.Monad.Fix (MonadFix)
@@ -252,6 +252,11 @@ playScreen eQuit =
           dMobs >>=
           distributeMapOverDynPure . fmap (liftA2 (,) <$> _thingPos <*> _thingSprite)
 
+        dMobPosAndHealth :: Dynamic t (Map ThingType (Pos, Health))
+        dMobPosAndHealth =
+          dMobs >>=
+          distributeMapOverDynPure . fmap (liftA2 (,) <$> _thingPos <*> _thingHealth)
+
         dMobHealth :: Dynamic t (Map ThingType Health)
         dMobHealth = dMobs >>= distributeMapOverDynPure . fmap _thingHealth
 
@@ -276,25 +281,16 @@ playScreen eQuit =
 
         eMobsDamaged :: Event t (Map ThingType Damage)
         eMobsDamaged =
-          (\mpos mhealth atkDirs ->
-             runMelees mpos $
-              Map.foldrWithKey
-                (\k d -> maybe id (\h -> Map.insert k (h, d)) $ Map.lookup k mhealth)
-                mempty
-                atkDirs) <$>
-          (current dMobPositions) <*>
-          (current dMobHealth) <@>
-          (fmapMaybeCompose (^? _Melee) eActions)
+          runMelees <$>
+          (current dMobPosAndHealth) <@>
+          (ffilter (notNullOf $ folded._Melee) eActions)
 
         eMobsMoved :: Event t (MonoidalMap ThingType Updates)
         eMobsMoved =
           fmapCheap MonoidalMap $
-          attachWith
-            (\a b ->
-               moveThings (const True) $
-               Map.mapWithKey (\k p -> (p, Map.lookup k b)) a)
-            (current dMobPositions)
-            (fmapMaybeCompose (^? _Move) eActions)
+          moveThings (const True) <$>
+          current dMobPositions <@>
+          ffilter (notNullOf $ folded._Move) eActions
 
         eMobsUpdated :: Event t (MonoidalMap ThingType Updates)
         eMobsUpdated =

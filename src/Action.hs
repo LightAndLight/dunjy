@@ -1,6 +1,8 @@
+{-# language LambdaCase #-}
 {-# language TemplateHaskell #-}
 module Action where
 
+import Control.Lens.Prism (Prism', prism')
 import Control.Lens.TH (makePrisms)
 import System.Random (Random(..))
 
@@ -45,4 +47,9 @@ data Action
   | Wait
   | Melee !Dir
   deriving (Eq, Show, Ord)
-makePrisms ''Action
+
+class AsMove s where; _Move :: Prism' s Move
+class AsMelee s where; _Melee :: Prism' s Dir
+
+instance AsMove Action where; _Move = prism' Move (\case; Move a -> Just a; _ -> Nothing)
+instance AsMelee Action where; _Melee = prism' Melee (\case; Melee a -> Just a; _ -> Nothing)

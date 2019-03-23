@@ -5,6 +5,7 @@ module Movement where
 
 import Algebra.Graph.AdjacencyMap (AdjacencyMap)
 import Algebra.Graph.Class (Graph, Vertex)
+import Control.Lens.Fold ((^?))
 import Control.Lens.Setter ((?~))
 import Control.Monad.State (execState, gets, modify)
 import Data.Foldable (foldl')
@@ -38,41 +39,47 @@ instance Ord Node where; compare (Node a _ _) (Node b _ _) = compare a b
 
 -- invariant: each Pos can only contain one Thing
 buildGraph ::
-  (Graph g, Vertex g ~ Node) =>
+  ( Graph g, Vertex g ~ Node
+  , AsMove a
+  ) =>
   (Pos -> Bool) ->
-  Map ThingType (Pos, Maybe Move) ->
+  Map ThingType Pos ->
+  Map ThingType a ->
   g
-buildGraph free m = res
+buildGraph free locations m = res
   where
     posMap :: Map Pos Node
     (posMap, res) =
       Map.foldrWithKey
-        (\k (pos, maction) (restPosMap, restGraph) ->
-           case maction of
-             Nothing ->
-               let
-                 n = Node { _nodeId = k, _nodeCurrentPos = pos, _nodeNewPos = Nothing }
-               in
-               ( Map.insert pos n restPosMap
-               , Graph.overlay (Graph.vertex n) restGraph
-               )
-             Just action ->
-               let
-                 pos' = runMove' pos action
-                 n =
-                   Node
-                   { _nodeId = k
-                   , _nodeCurrentPos = pos
-                   , _nodeNewPos = if free pos' && pos /= pos' then Just pos' else Nothing
-                   }
-               in
-                 ( Map.insert pos n restPosMap
-                 , case Map.lookup pos' posMap of
-                     Nothing ->
-                       Graph.overlay (Graph.vertex n) restGraph
-                     Just n' ->
-                       Graph.overlay (Graph.edge n' n) restGraph
-                 ))
+        (\k action (restPosMap, restGraph) ->
+           case Map.lookup k locations of
+             Nothing -> (restPosMap, restGraph)
+             Just pos ->
+               case action ^? _Move of
+                 Nothing ->
+                   let
+                     n = Node { _nodeId = k, _nodeCurrentPos = pos, _nodeNewPos = Nothing }
+                   in
+                   ( Map.insert pos n restPosMap
+                   , Graph.overlay (Graph.vertex n) restGraph
+                   )
+                 Just mv ->
+                   let
+                     pos' = runMove' pos mv
+                     n =
+                       Node
+                       { _nodeId = k
+                       , _nodeCurrentPos = pos
+                       , _nodeNewPos = if free pos' && pos /= pos' then Just pos' else Nothing
+                       }
+                   in
+                     ( Map.insert pos n restPosMap
+                     , case Map.lookup pos' posMap of
+                         Nothing ->
+                           Graph.overlay (Graph.vertex n) restGraph
+                         Just n' ->
+                           Graph.overlay (Graph.edge n' n) restGraph
+                     ))
         (mempty, Graph.empty)
         m
 
@@ -121,8 +128,10 @@ runMoves am = snd $ foldl' go (mempty, mempty) order
 
 moveThings ::
   ( Monoid b, UpdatePos b
+  , AsMove a
   ) =>
   (Pos -> Bool) ->
-  Map ThingType (Pos, Maybe Move) ->
+  Map ThingType Pos ->
+  Map ThingType a ->
   Map ThingType b
-moveThings free = runMoves . buildGraph free
+moveThings free locs = runMoves . buildGraph free locs

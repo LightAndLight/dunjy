@@ -1,5 +1,6 @@
 module Attack where
 
+import Control.Lens.Fold ((^?))
 import Data.Map (Map)
 
 import qualified Data.Map as Map
@@ -11,26 +12,29 @@ import Thing
 import ThingType
 
 runMelees ::
-  Map ThingType Pos -> -- ^ all the things
-  Map ThingType (Health, Dir) -> -- ^ things attacking
+  AsMelee a =>
+  Map ThingType (Pos, Health) -> -- ^ all the things
+  Map ThingType a -> -- ^ things attacking
   Map ThingType Damage -- ^ things receiving damage
-runMelees thingLocs =
+runMelees things =
   Map.foldlWithKey
-    (\rest k (health, dir) ->
-       case Map.lookup k thingLocs of
-         Nothing -> rest
-         Just pos ->
-           case findAtPos (runMove' pos $ Relative dir) thingLocs of
-             Nothing -> rest
-             Just target ->
-               case Map.lookup k rest of
-                 -- this thing was killed this turn
-                 Just dmg | act dmg health <= mempty -> rest
-                 -- this thing didn't die this turn
-                 _ -> Map.insertWith (<>) target (Damage 2) rest)
+    (\rest k action ->
+       maybe
+         rest
+         (\(kHealth, target) ->
+            case Map.lookup k rest of
+              -- this thing was killed this turn
+              Just dmg | act dmg kHealth <= mempty -> rest
+              -- this thing didn't die this turn
+              _ -> Map.insertWith (<>) target (Damage 2) rest)
+         (do
+            dir <- action ^? _Melee
+            (pos, health) <- Map.lookup k things
+            target <- findAtPos (runMove' pos $ Relative dir) things
+            pure (health, target)))
     mempty
   where
     findAtPos p =
       Map.foldrWithKey
-        (\k pos rest -> if p == pos then Just k else rest)
+        (\k (pos, _) rest -> if p == pos then Just k else rest)
         Nothing
