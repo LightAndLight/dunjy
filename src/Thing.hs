@@ -19,6 +19,7 @@ import Reflex.Dynamic (Dynamic, holdDyn)
 import Control.Monad.Fix (MonadFix)
 import Data.Coerce (coerce)
 import Data.Dependent.Map (DMap)
+import Data.Dependent.Sum (ShowTag(..))
 import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
 import Data.GADT.Show.TH (deriveGShow)
 import Data.Monoid (Sum(..))
@@ -75,6 +76,10 @@ deriveGCompare ''Update
 deriveGShow ''Update
 
 newtype Updates = Updates { unUpdates :: DMap Update Identity }
+  deriving Show
+instance ShowTag Update Identity where
+  showTaggedPrec UpdateHealth = showsPrec
+  showTaggedPrec UpdatePos = showsPrec
 class UpdateHealth s where; updateHealth_ :: Lens' s (Maybe Health)
 class UpdatePos s where; updatePos_ :: Lens' s (Maybe Pos)
 instance Semigroup Updates where

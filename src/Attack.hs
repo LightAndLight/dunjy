@@ -12,19 +12,22 @@ import ThingType
 
 runMelees ::
   Map ThingType Pos -> -- ^ all the things
-  Map ThingType (Pos, Health, Dir) -> -- ^ things attacking
+  Map ThingType (Health, Dir) -> -- ^ things attacking
   Map ThingType Damage -- ^ things receiving damage
 runMelees thingLocs =
   Map.foldlWithKey
-    (\rest k (pos, health, dir) ->
-       case findAtPos (runMove' pos $ Relative dir) thingLocs of
+    (\rest k (health, dir) ->
+       case Map.lookup k thingLocs of
          Nothing -> rest
-         Just target ->
-           case Map.lookup k rest of
-             -- this thing was killed this turn
-             Just dmg | act dmg health <= mempty -> rest
-             -- this thing didn't die this turn
-             _ -> Map.insertWith (<>) target (Damage 2) rest)
+         Just pos ->
+           case findAtPos (runMove' pos $ Relative dir) thingLocs of
+             Nothing -> rest
+             Just target ->
+               case Map.lookup k rest of
+                 -- this thing was killed this turn
+                 Just dmg | act dmg health <= mempty -> rest
+                 -- this thing didn't die this turn
+                 _ -> Map.insertWith (<>) target (Damage 2) rest)
     mempty
   where
     findAtPos p =

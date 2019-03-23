@@ -12,9 +12,10 @@ module Dunjy where
 
 import Reflex.Adjustable.Class (Adjustable)
 import Reflex.Class
-  ( Reflex, Event, EventSelector, MonadHold
-  , select, never, mergeWith, mergeMap, fmapMaybe
-  , attachWith, fanMap
+  ( Reflex, Event, EventSelector, MonadHold, FunctorMaybe
+  , select, never, mergeWith, mergeMap
+  , attachWith, fanMap, fmapMaybe
+  , (<@>), (<@)
   )
 import Reflex.Dynamic
   (Dynamic, switchDyn, updated, distributeMapOverDynPure, current, foldDyn)
@@ -37,6 +38,7 @@ import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
 import Data.Dependent.Map (DMap)
+import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity(..))
 import Data.Functor.Misc (Const2(..))
@@ -44,13 +46,16 @@ import Data.Map (Map)
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
 import Graphics.Vty.Input.Events (Key(..))
+import Lens.Micro ((?~))
 import System.Random (Random(..), newStdGen)
 
 import qualified Data.Dependent.Map as DMap
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 
+import Data.Monoid.Action (act)
 import Action
+import Attack
 import Level
 import Movement
 import Thing
@@ -61,6 +66,14 @@ import Pos
 import Random
 
 newtype Screen = Screen Text
+
+fmapMaybeCompose ::
+  (Reflex t, Foldable f, FunctorMaybe f) =>
+  (a -> Maybe b) ->
+  Event t (f a) ->
+  Event t (f b)
+fmapMaybeCompose f =
+  fmapMaybe (\m -> let res = fmapMaybe f m in if null res then Nothing else Just res)
 
 screenWidth :: Int
 screenWidth = 80
@@ -235,9 +248,6 @@ playScreen eQuit =
       level <- newLevel 80 30 $ \x y -> pure (newTileAt $ Pos x y)
 
       let
-        ePlayerUpdate :: Event t Updates
-        ePlayerUpdate = select eMobsMoved' (Const2 TPlayer)
-
         dMobPositions :: Dynamic t (Map ThingType Pos)
         dMobPositions = dMobs >>= distributeMapOverDynPure . fmap _thingPos
 
@@ -246,8 +256,8 @@ playScreen eQuit =
           dMobs >>=
           distributeMapOverDynPure . fmap (liftA2 (,) <$> _thingPos <*> _thingSprite)
 
-        -- dMobHealth :: Dynamic t (Map ThingType Health)
-        -- dMobHealth = dMobs >>= distributeMapOverDynPure . fmap _thingHealth
+        dMobHealth :: Dynamic t (Map ThingType Health)
+        dMobHealth = dMobs >>= distributeMapOverDynPure . fmap _thingHealth
 
         (eTick, mkPlayer) =
           initPlayer
@@ -268,15 +278,23 @@ playScreen eQuit =
         eActions :: Event t (Map ThingType (DMap Action Identity))
         eActions = switchDyn $ mergeMap . fmap _thingAction <$> dMobs
 
-        -- eMobsMelee :: Event t (Map ThingType ((Pos, Health), Dir))
-        -- eMobsMelee = filterActionsWith (_thingPos &&& _thingHealth) meleeAction
-
-      {-
-        eDeleteMobs :: forall x. Event t (Map ThingType (Maybe x))
+        eDeleteMobs :: Event t (Map ThingType (Maybe (Pos, Health)))
         eDeleteMobs =
-          fmapMaybe (\h -> if h <= Health 0 then Just Nothing else Nothing) <$>
-          updated dMobHealth
--}
+          fmapMaybeCompose
+            (\h -> if h <= Health 0 then Just Nothing else Nothing)
+            (current dMobHealth <@ eTick)
+
+        eMobsDamaged :: Event t (Map ThingType Damage)
+        eMobsDamaged =
+          (\mpos mhealth atkDirs ->
+             runMelees mpos $
+              Map.foldrWithKey
+                (\k d -> maybe id (\h -> Map.insert k (h, d)) $ Map.lookup k mhealth)
+                mempty
+                atkDirs) <$>
+          (current dMobPositions) <*>
+          (current dMobHealth) <@>
+          (fmapMaybeCompose meleeAction eActions)
 
         eMobsMoved :: Event t (Map ThingType Updates)
         eMobsMoved =
@@ -285,15 +303,31 @@ playScreen eQuit =
                moveThings (const True) $
                Map.mapWithKey (\k p -> (p, Map.lookup k b)) a)
             (current dMobPositions)
-            (fmapMaybe moveAction <$> eActions)
+            (fmapMaybeCompose moveAction eActions)
 
-        eMobsMoved' :: EventSelector t (Const2 ThingType Updates)
-        eMobsMoved' = fanMap eMobsMoved
+        eMobsUpdated :: EventSelector t (Const2 ThingType Updates)
+        eMobsUpdated =
+          fanMap . mergeWith (<>) $
+          [ eMobsMoved
+          , (\hs ->
+               Map.foldrWithKey
+                 (\k d ->
+                    maybe
+                      id
+                      (\h -> Map.insert k $ mempty & updateHealth_ ?~ act d h)
+                      (Map.lookup k hs))
+                 mempty) <$>
+            current dMobHealth <@>
+            eMobsDamaged
+          ]
+
+        ePlayerUpdate :: Event t Updates
+        ePlayerUpdate = select eMobsUpdated (Const2 TPlayer)
 
       dMobs :: Dynamic t (Map ThingType (Thing t (Dynamic t))) <-
         listHoldWithKey
           mempty
-          (mergeWith (Map.unionWith (<|>)) [eInsertPlayer, eInsertMob{-, eDeleteMobs-}])
+          (mergeWith (Map.unionWith (<|>)) [eInsertPlayer, eInsertMob, eDeleteMobs])
           (\k (pos, health) ->
              case k of
                TPlayer -> mkPlayer pos health ePlayerUpdate
@@ -309,7 +343,7 @@ playScreen eQuit =
                    eAction = decision <$> updated dRandomDir
 
                    eUpdate :: Event t Updates
-                   eUpdate = select eMobsMoved' (Const2 k)
+                   eUpdate = select eMobsUpdated (Const2 k)
 
                  mkThing pos health (pure 'Z') eAction eUpdate)
 
