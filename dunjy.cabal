@@ -43,6 +43,7 @@ library
                      , dependent-sum-template ^>=0.0
                      , microlens ^>=0.4
                      , microlens-th
+                     , monoidal-containers ^>=0.4
                      , mtl ^>=2.2
                      , random ^>=1.1
                      , stm ^>=2.5

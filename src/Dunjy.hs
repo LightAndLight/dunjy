@@ -15,7 +15,8 @@ import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold, FunctorMaybe
   , select, never, mergeWith, mergeMap
   , attachWith, fanMap, fmapMaybe
-  , (<@>), (<@)
+  , coerceEvent, fmapCheap
+  , (<@>)
   )
 import Reflex.Dynamic
   (Dynamic, switchDyn, updated, distributeMapOverDynPure, current, foldDyn)
@@ -43,10 +44,11 @@ import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity(..))
 import Data.Functor.Misc (Const2(..))
 import Data.Map (Map)
+import Data.Map.Monoidal (MonoidalMap(..))
 import Data.Text (Text)
 import Graphics.Vty.Image (Image, backgroundFill)
 import Graphics.Vty.Input.Events (Key(..))
-import Lens.Micro ((?~))
+import Lens.Micro ((?~), (^.))
 import System.Random (Random(..), newStdGen)
 
 import qualified Data.Dependent.Map as DMap
@@ -242,7 +244,7 @@ playScreen eQuit =
       eInsertMob =
         eRandomPos <&>
         \(HCons1 (ResponseRandom p) (HCons1 (ResponseId i) HNil1)) ->
-          Map.singleton (TThing i) (Just (p, Health 10))
+          Map.singleton (TThing i) (Just (p, Health 2))
 
     rec
       level <- newLevel 80 30 $ \x y -> pure (newTileAt $ Pos x y)
@@ -278,12 +280,6 @@ playScreen eQuit =
         eActions :: Event t (Map ThingType (DMap Action Identity))
         eActions = switchDyn $ mergeMap . fmap _thingAction <$> dMobs
 
-        eDeleteMobs :: Event t (Map ThingType (Maybe (Pos, Health)))
-        eDeleteMobs =
-          fmapMaybeCompose
-            (\h -> if h <= Health 0 then Just Nothing else Nothing)
-            (current dMobHealth <@ eTick)
-
         eMobsDamaged :: Event t (Map ThingType Damage)
         eMobsDamaged =
           (\mpos mhealth atkDirs ->
@@ -296,8 +292,9 @@ playScreen eQuit =
           (current dMobHealth) <@>
           (fmapMaybeCompose meleeAction eActions)
 
-        eMobsMoved :: Event t (Map ThingType Updates)
+        eMobsMoved :: Event t (MonoidalMap ThingType Updates)
         eMobsMoved =
+          fmapCheap MonoidalMap $
           attachWith
             (\a b ->
                moveThings (const True) $
@@ -305,11 +302,12 @@ playScreen eQuit =
             (current dMobPositions)
             (fmapMaybeCompose moveAction eActions)
 
-        eMobsUpdated :: EventSelector t (Const2 ThingType Updates)
+        eMobsUpdated :: Event t (MonoidalMap ThingType Updates)
         eMobsUpdated =
-          fanMap . mergeWith (<>) $
+          mergeWith (<>) $
           [ eMobsMoved
-          , (\hs ->
+          , fmapCheap MonoidalMap $
+            (\hs ->
                Map.foldrWithKey
                  (\k d ->
                     maybe
@@ -321,8 +319,21 @@ playScreen eQuit =
             eMobsDamaged
           ]
 
+        eDeleteMobs :: Event t (Map ThingType (Maybe (Pos, Health)))
+        eDeleteMobs =
+          fmapMaybeCompose
+            (\u ->
+               maybe
+                 Nothing
+                 (\h -> if h <= Health 0 then Just Nothing else Nothing)
+                 (u ^. updateHealth_))
+            (fmapCheap getMonoidalMap eMobsUpdated)
+
+        updateSelector :: EventSelector t (Const2 ThingType Updates)
+        updateSelector = fanMap $ coerceEvent eMobsUpdated
+
         ePlayerUpdate :: Event t Updates
-        ePlayerUpdate = select eMobsUpdated (Const2 TPlayer)
+        ePlayerUpdate = select updateSelector (Const2 TPlayer)
 
       dMobs :: Dynamic t (Map ThingType (Thing t (Dynamic t))) <-
         listHoldWithKey
@@ -343,7 +354,7 @@ playScreen eQuit =
                    eAction = decision <$> updated dRandomDir
 
                    eUpdate :: Event t Updates
-                   eUpdate = select eMobsUpdated (Const2 k)
+                   eUpdate = select updateSelector (Const2 k)
 
                  mkThing pos health (pure 'Z') eAction eUpdate)
 
