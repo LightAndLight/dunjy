@@ -3,13 +3,14 @@
 {-# language TemplateHaskell #-}
 module Player where
 
-import Reflex.Class (Reflex, Behavior, Event, MonadHold, leftmost, gate)
+import Reflex.Class (Reflex, Behavior, Event, MonadHold, leftmost, (<@))
 import Reflex.Dynamic (Dynamic, current)
 
 import Control.Lens.Getter ((^.))
 import Control.Lens.TH (makeLenses)
 import Control.Monad.Fix (MonadFix)
 import Data.Map (Map)
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 
 import qualified Data.Map as Map
@@ -48,37 +49,35 @@ initPlayer pc dMobPositions =
   , \pos health eUpdates -> mkThing pos health (pure '@') eAction eUpdates
   )
   where
-    dPlayerPos :: Dynamic t (Maybe Pos)
-    dPlayerPos = Map.lookup TPlayer <$> dMobPositions
-
     bAdjacentMobs :: Behavior t (Set Dir)
     bAdjacentMobs =
       current $
-      (\mppos mobs ->
-         case mppos of
-           Nothing -> Set.empty
-           Just ppos ->
+      (\mobs ->
+         fromMaybe Set.empty $ do
+           ppos <- Map.lookup TPlayer mobs
+           pure $
              foldr
-               (\tpos ->
-                  case subtractPos ppos tpos of
-                    Pos (-1) 0 -> Set.insert L
-                    Pos (-1) (-1) -> Set.insert UL
-                    Pos 0 (-1) -> Set.insert U
-                    Pos 1 (-1) -> Set.insert UR
-                    Pos 1 0 -> Set.insert R
-                    Pos 1 1 -> Set.insert DR
-                    Pos 0 1 -> Set.insert D
-                    Pos (-1) 1 -> Set.insert DL
-                    _ -> id)
-               mempty
-               mobs) <$>
-      dPlayerPos <*>
+             (\tpos ->
+               case subtractPos ppos tpos of
+                 Pos (-1) 0 -> Set.insert L
+                 Pos (-1) (-1) -> Set.insert UL
+                 Pos 0 (-1) -> Set.insert U
+                 Pos 1 (-1) -> Set.insert UR
+                 Pos 1 0 -> Set.insert R
+                 Pos 1 1 -> Set.insert DR
+                 Pos 0 1 -> Set.insert D
+                 Pos (-1) 1 -> Set.insert DL
+                 _ -> id)
+             mempty
+             mobs) <$>
       dMobPositions
 
-    attackDir d l = d <$ gate (Set.member d <$> bAdjacentMobs) (pc ^. l)
-    moveDir d l = Move (Relative d) <$ gate (Set.notMember d <$> bAdjacentMobs) (pc ^. l)
+    moveOrAttack d l =
+      (\m -> if m then Melee d else Move (Relative d)) <$>
+      fmap (Set.member d) bAdjacentMobs <@
+      (pc ^. l)
 
-    moveDirs =
+    moveOrAttackDirs =
       [ (L, pcLeft)
       , (UL, pcUpLeft)
       , (U, pcUp)
@@ -92,9 +91,7 @@ initPlayer pc dMobPositions =
     eTick :: Event t Action
     eTick =
       leftmost $
-      fmap (uncurry moveDir) moveDirs <>
-      [ Wait <$ (pc ^. pcWait)
-      , Melee <$> leftmost (uncurry attackDir <$> moveDirs)
-      ]
+      (Wait <$ (pc ^. pcWait)) :
+      fmap (uncurry moveOrAttack) moveOrAttackDirs
 
     eAction = eTick

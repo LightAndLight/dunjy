@@ -1,4 +1,5 @@
 {-# language BangPatterns #-}
+{-# language FlexibleContexts #-}
 {-# language ScopedTypeVariables #-}
 {-# language TypeFamilies #-}
 module Movement where
@@ -6,10 +7,13 @@ module Movement where
 import Algebra.Graph.AdjacencyMap (AdjacencyMap)
 import Algebra.Graph.Class (Graph, Vertex)
 import Control.Lens.Fold ((^?))
+import Control.Lens.Getter ((^.))
 import Control.Lens.Setter ((?~))
+import Control.Lens.Wrapped (_Wrapped)
 import Control.Monad.State (execState, gets, modify)
 import Data.Foldable (foldl')
 import Data.Function ((&))
+import Data.Functor.Identity (Identity)
 import Data.Map (Map)
 import Data.Set (Set)
 
@@ -40,21 +44,23 @@ instance Ord Node where; compare (Node a _ _) (Node b _ _) = compare a b
 -- invariant: each Pos can only contain one Thing
 buildGraph ::
   ( Graph g, Vertex g ~ Node
-  , AsMove a
+  , HasPos Identity a
+  , AsMove b
   ) =>
-  (Pos -> Bool) ->
-  Map ThingType Pos ->
-  Map ThingType a ->
+  (Pos -> Bool) -> -- ^ which tiles are free
+  Map ThingType a -> -- ^ mobs
+  Map ThingType b -> -- ^ mob actions
   g
-buildGraph free locations m = res
+buildGraph free mobs m = res
   where
     posMap :: Map Pos Node
     (posMap, res) =
       Map.foldrWithKey
         (\k action (restPosMap, restGraph) ->
-           case Map.lookup k locations of
+           case Map.lookup k mobs of
              Nothing -> (restPosMap, restGraph)
-             Just pos ->
+             Just mob ->
+               let pos = mob ^. _pos._Wrapped in
                case action ^? _Move of
                  Nothing ->
                    let
@@ -121,17 +127,18 @@ runMoves am = snd $ foldl' go (mempty, mempty) order
                 case _nodeNewPos node of
                   Just p ->
                     if p `Set.notMember` seen
-                    then (Set.insert p s, Map.insert (_nodeId node) (mempty & updatePos_ ?~ p) m)
+                    then (Set.insert p s, Map.insert (_nodeId node) (mempty & _updatePos ?~ p) m)
                     else (Set.insert (_nodeCurrentPos node) s, m)
                   Nothing -> (Set.insert (_nodeCurrentPos node) s, m))
             (NonEmpty.vertexList1 root)
 
 moveThings ::
-  ( Monoid b, UpdatePos b
-  , AsMove a
+  ( HasPos Identity a
+  , AsMove b
+  , Monoid c, UpdatePos c
   ) =>
   (Pos -> Bool) ->
-  Map ThingType Pos ->
-  Map ThingType a ->
-  Map ThingType b
+  Map ThingType a -> -- ^ mobs
+  Map ThingType b -> -- ^ mob actions
+  Map ThingType c -- ^ movement updates
 moveThings free locs = runMoves . buildGraph free locs

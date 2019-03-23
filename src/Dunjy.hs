@@ -43,6 +43,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
 import Data.Function ((&))
 import Data.Functor ((<&>))
+import Data.Functor.Identity (Identity)
 import Data.Functor.Misc (Const2(..))
 import Data.Map (Map)
 import Data.Map.Monoidal (MonoidalMap(..))
@@ -244,21 +245,19 @@ playScreen eQuit =
       level <- newLevel 80 30 $ \x y -> pure (newTileAt $ Pos x y)
 
       let
-        dMobPositions :: Dynamic t (Map ThingType Pos)
-        dMobPositions = dMobs >>= distributeMapOverDynPure . fmap _thingPos
+        dMobs :: Dynamic t (Map ThingType (Thing t Identity))
+        dMobs = _dMobs >>= distributeMapOverDynPure . fmap sequenceThing
 
         dMobPosAndSprite :: Dynamic t (Map ThingType (Pos, Char))
         dMobPosAndSprite =
-          dMobs >>=
+          _dMobs >>=
           distributeMapOverDynPure . fmap (liftA2 (,) <$> _thingPos <*> _thingSprite)
 
-        dMobPosAndHealth :: Dynamic t (Map ThingType (Pos, Health))
-        dMobPosAndHealth =
-          dMobs >>=
-          distributeMapOverDynPure . fmap (liftA2 (,) <$> _thingPos <*> _thingHealth)
+        dMobPositions :: Dynamic t (Map ThingType Pos)
+        dMobPositions = _dMobs >>= distributeMapOverDynPure . fmap _thingPos
 
         dMobHealth :: Dynamic t (Map ThingType Health)
-        dMobHealth = dMobs >>= distributeMapOverDynPure . fmap _thingHealth
+        dMobHealth = _dMobs >>= distributeMapOverDynPure . fmap _thingHealth
 
         (eTick, mkPlayer) =
           initPlayer
@@ -282,14 +281,14 @@ playScreen eQuit =
         eMobsDamaged :: Event t (Map ThingType Damage)
         eMobsDamaged =
           runMelees <$>
-          (current dMobPosAndHealth) <@>
-          (ffilter (notNullOf $ folded._Melee) eActions)
+          current dMobs <@>
+          ffilter (notNullOf $ folded._Melee) eActions
 
         eMobsMoved :: Event t (MonoidalMap ThingType Updates)
         eMobsMoved =
           fmapCheap MonoidalMap $
           moveThings (const True) <$>
-          current dMobPositions <@>
+          current dMobs <@>
           ffilter (notNullOf $ folded._Move) eActions
 
         eMobsUpdated :: Event t (MonoidalMap ThingType Updates)
@@ -302,7 +301,7 @@ playScreen eQuit =
                  (\k d ->
                     maybe
                       id
-                      (\h -> Map.insert k $ mempty & updateHealth_ ?~ act d h)
+                      (\h -> Map.insert k $ mempty & _updateHealth ?~ act d h)
                       (Map.lookup k hs))
                  mempty) <$>
             current dMobHealth <@>
@@ -316,7 +315,7 @@ playScreen eQuit =
                maybe
                  Nothing
                  (\h -> if h <= Health 0 then Just Nothing else Nothing)
-                 (u ^. updateHealth_))
+                 (u ^. _updateHealth))
             (fmapCheap getMonoidalMap eMobsUpdated)
 
         updateSelector :: EventSelector t (Const2 ThingType Updates)
@@ -325,7 +324,7 @@ playScreen eQuit =
         ePlayerUpdate :: Event t Updates
         ePlayerUpdate = select updateSelector (Const2 TPlayer)
 
-      dMobs :: Dynamic t (Map ThingType (Thing t (Dynamic t))) <-
+      _dMobs :: Dynamic t (Map ThingType (Thing t (Dynamic t))) <-
         listHoldWithKey
           mempty
           (mergeWith (Map.unionWith (<|>)) [eInsertPlayer, eInsertMob, eDeleteMobs])

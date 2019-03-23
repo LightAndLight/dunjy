@@ -81,8 +81,8 @@ newtype Updates = Updates { unUpdates :: DMap Update Identity }
 instance ShowTag Update Identity where
   showTaggedPrec UpdateHealth = showsPrec
   showTaggedPrec UpdatePos = showsPrec
-class UpdateHealth s where; updateHealth_ :: Lens' s (Maybe Health)
-class UpdatePos s where; updatePos_ :: Lens' s (Maybe Pos)
+class UpdateHealth s where; _updateHealth :: Lens' s (Maybe Health)
+class UpdatePos s where; _updatePos :: Lens' s (Maybe Pos)
 instance Semigroup Updates where
   Updates a <> Updates b = Updates $ DMap.union a b
 instance Monoid Updates where
@@ -106,8 +106,8 @@ sequenceThing (Thing a b c d) =
   coerceDynamic b <*>
   coerceDynamic c <*>
   pure d
-class HasHealth f s | s -> f where; health_ :: Lens' s (f Health)
-class HasPos f s | s -> f where; pos_ :: Lens' s (f Pos)
+class HasHealth f s | s -> f where; _health :: Lens' s (f Health)
+class HasPos f s | s -> f where; _pos :: Lens' s (f Pos)
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>
@@ -142,7 +142,7 @@ mkUpdateLens k =
           (\v' -> DMap.insert k (Identity v') u)
           v)
 
-instance UpdateHealth Updates where; updateHealth_ = mkUpdateLens UpdateHealth
-instance UpdatePos Updates where; updatePos_ = mkUpdateLens UpdatePos
-instance HasHealth f (Thing t f) where; health_ = thingHealth
-instance HasPos f (Thing t f) where; pos_ = thingPos
+instance UpdateHealth Updates where; _updateHealth = mkUpdateLens UpdateHealth
+instance UpdatePos Updates where; _updatePos = mkUpdateLens UpdatePos
+instance HasHealth f (Thing t f) where; _health = thingHealth
+instance HasPos f (Thing t f) where; _pos = thingPos
