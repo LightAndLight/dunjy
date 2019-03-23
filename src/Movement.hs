@@ -11,7 +11,7 @@ import Data.Function ((&))
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Set (Set)
-import Lens.Micro ((^.), (?~))
+import Lens.Micro ((?~))
 
 import qualified Algebra.Graph.AdjacencyMap as Graph
   (edgeList, vertexSet)
@@ -39,18 +39,16 @@ instance Ord Node where; compare (Node a _ _) (Node b _ _) = compare a b
 
 -- invariant: each Pos can only contain one Thing
 buildGraph ::
-  HasPos a =>
   (Graph g, Vertex g ~ Node) =>
   (Pos -> Bool) ->
-  Map ThingType (a, Maybe (NonEmpty Move)) ->
+  Map ThingType (Pos, Maybe (NonEmpty Move)) ->
   g
 buildGraph free m = res
   where
     posMap :: Map Pos Node
     (posMap, res) =
       Map.foldrWithKey
-        (\k (thing, maction) (restPosMap, restGraph) ->
-           let pos = thing ^. pos_ in
+        (\k (pos, maction) (restPosMap, restGraph) ->
            case maction of
              Nothing ->
                let
@@ -123,10 +121,9 @@ runMoves am = snd $ foldl' go (mempty, mempty) order
             (NonEmpty.vertexList1 root)
 
 moveThings ::
-  ( HasPos a
-  , Monoid b, UpdatePos b
+  ( Monoid b, UpdatePos b
   ) =>
   (Pos -> Bool) ->
-  Map ThingType (a, Maybe (NonEmpty Move)) ->
+  Map ThingType (Pos, Maybe (NonEmpty Move)) ->
   Map ThingType b
 moveThings free = runMoves . buildGraph free

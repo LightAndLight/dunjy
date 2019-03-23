@@ -1,6 +1,8 @@
+{-# options_ghc -fno-warn-unused-matches #-}
 {-# language DerivingVia #-}
 {-# language FlexibleContexts #-}
 {-# language FlexibleInstances #-}
+{-# language FunctionalDependencies #-}
 {-# language GADTs #-}
 {-# language LambdaCase #-}
 {-# language MultiParamTypeClasses #-}
@@ -10,17 +12,22 @@
 {-# language TemplateHaskell #-}
 module Thing where
 
-import Reflex.Class (Reflex, Event, MonadHold)
-import Reflex.Dynamic (Dynamic)
+import Reflex.Class
+  (Reflex, Event, MonadHold, EventSelector, coerceEvent, fan, select, coerceDynamic)
+import Reflex.Dynamic (Dynamic, holdDyn)
 
 import Control.Monad.Fix (MonadFix)
+import Data.Coerce (coerce)
 import Data.Dependent.Map (DMap)
-import Data.Maybe (fromMaybe)
-import Data.Monoid (Last(..), Sum(..))
+import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
+import Data.GADT.Show.TH (deriveGShow)
+import Data.Monoid (Sum(..))
 import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
-import Lens.Micro (Lens', (%~))
+import Lens.Micro ((%~), Lens', lens)
 import Lens.Micro.TH (makeLenses)
+
+import qualified Data.Dependent.Map as DMap
 
 import Data.Monoid.Action
 import Action
@@ -60,30 +67,41 @@ newtype Damage = Damage { unDamage :: Int }
 instance MonoidAction Damage Health where
   act (Damage n) (Health h) = Health (h - n)
 
-data UpdateThing t
-  = UpdateThing
-  { _updateThingPos :: Maybe Pos
-  , _updateThingHealth :: Maybe Health
-  } deriving (Eq, Show, Ord)
+data Update a where
+  UpdatePos :: Update Pos
+  UpdateHealth :: Update Health
+deriveGEq ''Update
+deriveGCompare ''Update
+deriveGShow ''Update
+
+newtype Updates = Updates { unUpdates :: DMap Update Identity }
 class UpdateHealth s where; updateHealth_ :: Lens' s (Maybe Health)
 class UpdatePos s where; updatePos_ :: Lens' s (Maybe Pos)
-instance Semigroup (UpdateThing t) where
-  UpdateThing a b <> UpdateThing a' b' =
-    UpdateThing
-      (getLast $ Last a <> Last a')
-      (getLast $ Last b <> Last b')
-instance Monoid (UpdateThing t) where
-  mempty = UpdateThing (getLast mempty) (getLast mempty)
+instance Semigroup Updates where
+  Updates a <> Updates b = Updates $ DMap.union a b
+instance Monoid Updates where
+  mempty = Updates mempty
 
-data Thing t
+fanUpdates :: Reflex t => Event t Updates -> EventSelector t Update
+fanUpdates = fan . coerceEvent
+
+data Thing t f
   = Thing
-  { _thingSprite :: Dynamic t Char
-  , _thingPos :: Pos
-  , _thingHealth :: Health
+  { _thingSprite :: f Char
+  , _thingPos :: f Pos
+  , _thingHealth :: f Health
   , _thingAction :: Event t (DMap Action Identity)
   }
-class HasHealth s where; health_ :: Lens' s Health
-class HasPos s where; pos_ :: Lens' s Pos
+
+sequenceThing :: Reflex t => Thing t (Dynamic t) -> Dynamic t (Thing t Identity)
+sequenceThing (Thing a b c d) =
+  Thing <$>
+  coerceDynamic a <*>
+  coerceDynamic b <*>
+  coerceDynamic c <*>
+  pure d
+class HasHealth f s | s -> f where; health_ :: Lens' s (f Health)
+class HasPos f s | s -> f where; pos_ :: Lens' s (f Pos)
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>
@@ -91,26 +109,34 @@ mkThing ::
   Health -> -- ^ initial health
   Dynamic t Char -> -- ^ sprite
   Event t (DMap Action Identity) -> -- ^ its actions
-  m (Thing t)
-mkThing pos health dSprite eAction = do
+  Event t Updates -> -- ^ update event
+  m (Thing t (Dynamic t))
+mkThing pos health dSprite eAction eUpdate = do
+  let updates = fanUpdates eUpdate
+  dPos <- holdDyn pos $ select updates UpdatePos
+  dHealth <- holdDyn health $ select updates UpdateHealth
   pure $
     Thing
     { _thingSprite = dSprite
-    , _thingPos = pos
-    , _thingHealth = health
+    , _thingPos = dPos
+    , _thingHealth = dHealth
     , _thingAction = eAction
     }
 
 makeLenses ''Thing
-makeLenses ''UpdateThing
 
-instance MonoidAction (UpdateThing t) (Thing t) where
-  act (UpdateThing mp mh) t =
-    t &
-    thingPos %~ flip fromMaybe mp &
-    thingHealth %~ flip fromMaybe mh
+mkUpdateLens :: Update a -> Lens' Updates (Maybe a)
+mkUpdateLens k =
+  lens
+    (coerce . DMap.lookup k . unUpdates)
+    (\(Updates u) v ->
+        Updates $
+        maybe
+          (DMap.delete k u)
+          (\v' -> DMap.insert k (Identity v') u)
+          v)
 
-instance UpdateHealth (UpdateThing t) where; updateHealth_ = updateThingHealth
-instance UpdatePos (UpdateThing t) where; updatePos_ = updateThingPos
-instance HasHealth (Thing t) where; health_ = thingHealth
-instance HasPos (Thing t) where; pos_ = thingPos
+instance UpdateHealth Updates where; updateHealth_ = mkUpdateLens UpdateHealth
+instance UpdatePos Updates where; updatePos_ = mkUpdateLens UpdatePos
+instance HasHealth f (Thing t f) where; health_ = thingHealth
+instance HasPos f (Thing t f) where; pos_ = thingPos

@@ -38,20 +38,22 @@ data PlayerControls t
   }
 makeLenses ''PlayerControls
 
-mkPlayer ::
+initPlayer ::
   forall t m.
   ( Reflex t, MonadHold t m, MonadFix m
   ) =>
   PlayerControls t -> -- ^ controls
-  Pos -> -- ^ initial position
-  Dynamic t (Map ThingType (Thing t)) -> -- ^ mobs
-  m (Event t (), Thing t)
-mkPlayer pc pos dMobs = do
-  res <- mkThing pos (Health 10) (pure '@') eAction
-  pure (() <$ eTick, res)
+  Dynamic t (Map ThingType Pos) -> -- ^ mob positions
+  ( Event t ()
+  , Pos -> Health -> Event t Updates -> m (Thing t (Dynamic t))
+  )
+initPlayer pc dMobPositions =
+  ( () <$ eTick
+  , \pos health eUpdates -> mkThing pos health (pure '@') eAction eUpdates
+  )
   where
     dPlayerPos :: Dynamic t (Maybe Pos)
-    dPlayerPos = fmap _thingPos . Map.lookup TPlayer <$> dMobs
+    dPlayerPos = Map.lookup TPlayer <$> dMobPositions
 
     bAdjacentMobs :: Behavior t (Set Dir)
     bAdjacentMobs =
@@ -61,8 +63,8 @@ mkPlayer pc pos dMobs = do
            Nothing -> Set.empty
            Just ppos ->
              foldr
-               (\t ->
-                  case subtractPos ppos (t ^. thingPos) of
+               (\tpos ->
+                  case subtractPos ppos tpos of
                     Pos (-1) 0 -> Set.insert L
                     Pos (-1) (-1) -> Set.insert UL
                     Pos 0 (-1) -> Set.insert U
@@ -75,7 +77,7 @@ mkPlayer pc pos dMobs = do
                mempty
                mobs) <$>
       dPlayerPos <*>
-      dMobs
+      dMobPositions
 
     attackDir d l = d <$ gate (Set.member d <$> bAdjacentMobs) (pc ^. l)
     moveDir d l = Move d :=> () <$ gate (Set.notMember d <$> bAdjacentMobs) (pc ^. l)
