@@ -42,7 +42,7 @@ initPlayer ::
   PlayerControls t -> -- ^ controls
   Dynamic t (Map ThingType Pos) -> -- ^ mob positions
   ( Event t ()
-  , Pos -> Health -> Event t Updates -> m (Thing t (Dynamic t))
+  , Pos -> Health -> Event t (Updates t) -> m (Thing t (Dynamic t))
   )
 initPlayer pc dMobPositions =
   ( () <$ eTick

@@ -2,9 +2,11 @@
 module Attack where
 
 import Control.Lens.Fold ((^?))
-import Control.Lens.Getter ((^.))
+import Control.Lens.Getter ((^.), view)
+import Control.Lens.Setter ((?~))
 import Control.Lens.Wrapped (_Wrapped)
 import Control.Monad (guard)
+import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
 
@@ -18,21 +20,22 @@ import ThingType
 runMelees ::
   ( HasPos Identity a, HasHealth Identity a
   , AsMelee b
+  , Monoid c, UpdateDamage c
   ) =>
   Map ThingType a -> -- ^ all the things
   Map ThingType b -> -- ^ things attacking
-  Map ThingType Damage -- ^ things receiving damage
+  Map ThingType c -- ^ things receiving damage
 runMelees things =
   Map.foldlWithKey
     (\rest k action ->
        maybe
          rest
          (\(kHealth, target) ->
-            case Map.lookup k rest of
+            case Map.lookup k rest >>= view _updateDamage of
               -- this thing was killed this turn
               Just dmg | act dmg kHealth <= mempty -> rest
               -- this thing didn't die this turn
-              _ -> Map.insertWith (<>) target (Damage 2) rest)
+              _ -> Map.insertWith (<>) target (mempty & _updateDamage ?~ Damage 2) rest)
          (do
             dir <- action ^? _Melee
             res <- Map.lookup k things

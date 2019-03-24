@@ -16,7 +16,8 @@ import Reflex.Class
   , select, never, mergeWith, mergeMap
   , fanMap, fmapMaybe
   , coerceEvent, fmapCheap
-  , (<@>), ffilter
+  , (<@>), ffilter, attachWithMaybe
+  , traceEvent
   )
 import Reflex.Dynamic
   (Dynamic, switchDyn, updated, distributeMapOverDynPure, current, foldDyn)
@@ -37,11 +38,10 @@ import Brick.Types (Widget, Location(..))
 import Control.Applicative ((<|>), liftA2)
 import Control.Lens.Fold (folded, notNullOf)
 import Control.Lens.Getter ((^.))
-import Control.Lens.Setter ((?~))
+import Control.Lens.Wrapped (_Wrapped)
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
-import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity)
 import Data.Functor.Misc (Const2(..))
@@ -256,9 +256,6 @@ playScreen eQuit =
         dMobPositions :: Dynamic t (Map ThingType Pos)
         dMobPositions = _dMobs >>= distributeMapOverDynPure . fmap _thingPos
 
-        dMobHealth :: Dynamic t (Map ThingType Health)
-        dMobHealth = _dMobs >>= distributeMapOverDynPure . fmap _thingHealth
-
         (eTick, mkPlayer) =
           initPlayer
           (PlayerControls
@@ -278,50 +275,50 @@ playScreen eQuit =
         eActions :: Event t (Map ThingType Action)
         eActions = switchDyn $ mergeMap . fmap _thingAction <$> dMobs
 
-        eMobsDamaged :: Event t (Map ThingType Damage)
+        eMobsDamaged :: Event t (MonoidalMap ThingType (Updates t))
         eMobsDamaged =
+          fmapCheap MonoidalMap $
           runMelees <$>
           current dMobs <@>
           ffilter (notNullOf $ folded._Melee) eActions
 
-        eMobsMoved :: Event t (MonoidalMap ThingType Updates)
+        eMobsMoved :: Event t (MonoidalMap ThingType (Updates t))
         eMobsMoved =
           fmapCheap MonoidalMap $
           moveThings (const True) <$>
           current dMobs <@>
           ffilter (notNullOf $ folded._Move) eActions
 
-        eMobsUpdated :: Event t (MonoidalMap ThingType Updates)
+        eMobsUpdated :: Event t (MonoidalMap ThingType (Updates t))
         eMobsUpdated =
           mergeWith (<>) $
           [ eMobsMoved
-          , fmapCheap MonoidalMap $
-            (\hs ->
-               Map.foldrWithKey
-                 (\k d ->
-                    maybe
-                      id
-                      (\h -> Map.insert k $ mempty & _updateHealth ?~ act d h)
-                      (Map.lookup k hs))
-                 mempty) <$>
-            current dMobHealth <@>
-            eMobsDamaged
+          , eMobsDamaged
           ]
 
         eDeleteMobs :: Event t (Map ThingType (Maybe (Pos, Health)))
         eDeleteMobs =
-          fmapMaybeCompose
-            (\u ->
-               maybe
-                 Nothing
-                 (\h -> if h <= Health 0 then Just Nothing else Nothing)
-                 (u ^. _updateHealth))
-            (fmapCheap getMonoidalMap eMobsUpdated)
+          traceEvent "delete" $
+          attachWithMaybe
+            (\mobs updates ->
+               let
+                 res =
+                   fmapMaybe
+                   (\t ->
+                      if (t ^. thingHealth._Wrapped) <= Health 0
+                      then Just Nothing
+                      else Nothing)
+                   (act updates mobs)
+               in
+                 if null res then Nothing else Just res)
 
-        updateSelector :: EventSelector t (Const2 ThingType Updates)
+              (current dMobs)
+            eMobsUpdated
+
+        updateSelector :: EventSelector t (Const2 ThingType (Updates t))
         updateSelector = fanMap $ coerceEvent eMobsUpdated
 
-        ePlayerUpdate :: Event t Updates
+        ePlayerUpdate :: Event t (Updates t)
         ePlayerUpdate = select updateSelector (Const2 TPlayer)
 
       _dMobs :: Dynamic t (Map ThingType (Thing t (Dynamic t))) <-
@@ -342,7 +339,7 @@ playScreen eQuit =
 
                    eAction = decision <$> updated dRandomDir
 
-                   eUpdate :: Event t Updates
+                   eUpdate :: Event t (Updates t)
                    eUpdate = select updateSelector (Const2 k)
 
                  mkThing pos health (pure 'Z') eAction eUpdate)

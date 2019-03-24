@@ -13,21 +13,28 @@
 module Thing where
 
 import Reflex.Class
-  (Reflex, Event, MonadHold, EventSelector, coerceEvent, fan, select, coerceDynamic)
-import Reflex.Dynamic (Dynamic, holdDyn)
+  ( Reflex, Event, MonadHold, EventSelector, coerceEvent, fan, select, coerceDynamic
+  , alignEventWithMaybe
+  )
+import Reflex.Dynamic (Dynamic, holdDyn, foldDyn)
 
+import Control.Lens.Getter ((^.))
 import Control.Lens.Lens (Lens', lens)
-import Control.Lens.Setter ((%~))
+import Control.Lens.Setter ((%~), (<>~))
 import Control.Lens.TH (makeLenses)
+import Control.Lens.Wrapped (_Wrapped)
 import Control.Monad.Fix (MonadFix)
 import Data.Coerce (coerce)
 import Data.Dependent.Map (DMap)
 import Data.Dependent.Sum (ShowTag(..))
+import Data.Foldable (fold)
 import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
 import Data.GADT.Show.TH (deriveGShow)
+import Data.Maybe (fromMaybe)
 import Data.Monoid (Sum(..))
 import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
+import Data.These (These(..))
 
 import qualified Data.Dependent.Map as DMap
 
@@ -71,24 +78,36 @@ instance MonoidAction Damage Health where
 
 data Update a where
   UpdatePos :: Update Pos
-  UpdateHealth :: Update Health
+  UpdateHealing :: Update Health
+  UpdateDamage :: Update Damage
 deriveGEq ''Update
 deriveGCompare ''Update
 deriveGShow ''Update
 
-newtype Updates = Updates { unUpdates :: DMap Update Identity }
+newtype Updates t = Updates { unUpdates :: DMap Update Identity }
   deriving Show
 instance ShowTag Update Identity where
-  showTaggedPrec UpdateHealth = showsPrec
+  showTaggedPrec UpdateHealing = showsPrec
   showTaggedPrec UpdatePos = showsPrec
-class UpdateHealth s where; _updateHealth :: Lens' s (Maybe Health)
+  showTaggedPrec UpdateDamage = showsPrec
+class UpdateDamage s where; _updateDamage :: Lens' s (Maybe Damage)
+class UpdateHealing s where; _updateHealing :: Lens' s (Maybe Health)
 class UpdatePos s where; _updatePos :: Lens' s (Maybe Pos)
-instance Semigroup Updates where
-  Updates a <> Updates b = Updates $ DMap.union a b
-instance Monoid Updates where
+instance Semigroup (Updates t) where
+  Updates a <> Updates b =
+    Updates $
+    DMap.unionWithKey
+    (\k x y ->
+       case k of
+         UpdateDamage -> x <> y
+         UpdateHealing -> x <> y
+         UpdatePos -> y)
+    a
+    b
+instance Monoid (Updates t) where
   mempty = Updates mempty
 
-fanUpdates :: Reflex t => Event t Updates -> EventSelector t Update
+fanUpdates :: Reflex t => Event t (Updates t) -> EventSelector t Update
 fanUpdates = fan . coerceEvent
 
 data Thing t f
@@ -115,12 +134,20 @@ mkThing ::
   Health -> -- ^ initial health
   Dynamic t Char -> -- ^ sprite
   Event t Action -> -- ^ its action
-  Event t Updates -> -- ^ update event
+  Event t (Updates t) -> -- ^ update event
   m (Thing t (Dynamic t))
 mkThing pos health dSprite eAction eUpdate = do
   let updates = fanUpdates eUpdate
   dPos <- holdDyn pos $ select updates UpdatePos
-  dHealth <- holdDyn health $ select updates UpdateHealth
+  dHealth <-
+    foldDyn (<>) health $
+    alignEventWithMaybe
+      (\case
+          This a -> Just . act a $ Health 0
+          That a -> Just a
+          These a b -> Just $ act a b)
+      (select updates UpdateDamage)
+      (select updates UpdateHealing)
   pure $
     Thing
     { _thingSprite = dSprite
@@ -131,7 +158,7 @@ mkThing pos health dSprite eAction eUpdate = do
 
 makeLenses ''Thing
 
-mkUpdateLens :: Update a -> Lens' Updates (Maybe a)
+mkUpdateLens :: Update a -> Lens' (Updates t) (Maybe a)
 mkUpdateLens k =
   lens
     (coerce . DMap.lookup k . unUpdates)
@@ -142,7 +169,16 @@ mkUpdateLens k =
           (\v' -> DMap.insert k (Identity v') u)
           v)
 
-instance UpdateHealth Updates where; _updateHealth = mkUpdateLens UpdateHealth
-instance UpdatePos Updates where; _updatePos = mkUpdateLens UpdatePos
+instance UpdateDamage (Updates t) where; _updateDamage = mkUpdateLens UpdateDamage
+instance UpdateHealing (Updates t) where; _updateHealing = mkUpdateLens UpdateHealing
+instance UpdatePos (Updates t) where; _updatePos = mkUpdateLens UpdatePos
 instance HasHealth f (Thing t f) where; _health = thingHealth
 instance HasPos f (Thing t f) where; _pos = thingPos
+
+instance MonoidAction (Updates t) (Thing t Identity) where
+  act m t =
+    t &
+    thingPos._Wrapped %~
+      flip fromMaybe (m ^. _updatePos) &
+    thingHealth._Wrapped <>~
+      fold (act <$> (m ^. _updateDamage) <*> (m ^. _updateHealing))
