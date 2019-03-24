@@ -4,6 +4,7 @@ module Attack where
 import Control.Lens.Fold ((^?))
 import Control.Lens.Getter ((^.))
 import Control.Lens.Wrapped (_Wrapped)
+import Control.Monad (guard)
 import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
 
@@ -38,6 +39,26 @@ runMelees things =
             target <- findAtPos (runMove' (res ^. _pos._Wrapped) $ Relative dir) things
             pure (res ^. _health._Wrapped, target)))
     mempty
+  where
+    findAtPos p =
+      Map.foldrWithKey
+        (\k thing rest -> if p == thing ^. _pos._Wrapped then Just k else rest)
+        Nothing
+
+runMelees' ::
+  ( HasPos Identity a, HasHealth Identity a
+  , AsMelee b
+  ) =>
+  Map ThingType a -> -- ^ mobs, to be accessed during the fold
+  ThingType -> -- ^ mob id
+  b -> -- ^ mob action
+  Maybe (ThingType, Damage) -- ^ damage dealt, and to whom
+runMelees' mobs tt action = do
+  dir <- action ^? _Melee
+  mob <- Map.lookup tt mobs
+  target <- findAtPos (runMove' (mob ^. _pos._Wrapped) $ Relative dir) mobs
+  guard $ (mob ^. _health._Wrapped) > Health 0
+  pure (target, Damage 2)
   where
     findAtPos p =
       Map.foldrWithKey
