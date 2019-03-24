@@ -198,8 +198,8 @@ newtype MovementGraph = MG { unMG :: [[NonEmpty.AdjacencyMap ThingType]] }
 
 class HasMovementGraph s where; _movementGraph :: Lens' s MovementGraph
 
-makeMovementGraph :: AdjacencyMap ThingType -> MovementGraph
-makeMovementGraph graph = MG order
+graphToMG :: AdjacencyMap ThingType -> MovementGraph
+graphToMG graph = MG order
   where
     sccs = Graph.scc graph
 
@@ -212,6 +212,13 @@ makeMovementGraph graph = MG order
 
     order :: [[NonEmpty.AdjacencyMap ThingType]]
     order = foldr (\a b -> Graph.reachable a sccs : b) [] roots
+
+makeMovementGraph ::
+  (HasPos Identity a, AsMove b) =>
+  Map ThingType a -> -- ^ mobs
+  Map ThingType b -> -- ^ mob actions
+  MovementGraph
+makeMovementGraph a b = graphToMG $ buildGraph' a b
 
 -- | Move a thing. Report whether it succeeded, along with an updated graph
 tryMove ::

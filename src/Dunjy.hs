@@ -40,10 +40,12 @@ import Control.Applicative ((<|>), liftA2, empty)
 import Control.Lens.Fold (folded, notNullOf)
 import Control.Lens.Getter ((^.))
 import Control.Lens.Wrapped (_Wrapped)
+import Control.Lens.TH (makeLenses)
 import Control.Monad.Codensity (lowerCodensity)
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
+import Control.Monad.State (evalState)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Data.Functor ((<&>))
@@ -228,6 +230,23 @@ makeUpdates fs mobs =
     (pure (mobs, mempty))
   where
     f = combineUpdaters fs
+
+data UpdatesState
+  = UpdatesState
+  { _usMovementGraph :: MovementGraph
+  }
+makeLenses ''UpdatesState
+
+instance HasMovementGraph UpdatesState where; _movementGraph = usMovementGraph
+
+updatesAttacksMoves ::
+  Map ThingType (Thing t Identity) ->
+  Map ThingType Action ->
+  Maybe (MonoidalMap ThingType (Updates t))
+updatesAttacksMoves a b =
+  evalState
+    (makeUpdates [moveThings', runMelees'] a b)
+    (UpdatesState { _usMovementGraph = makeMovementGraph a b })
 
 askSelect :: MonadReader (EventSelector t k) m => k a -> m (Event t a)
 askSelect k = asks (`select` k)
