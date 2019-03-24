@@ -285,12 +285,11 @@ moveThings' ::
   , HasMovementGraph s
   , MonadState s m
   ) =>
-  (Pos -> Bool) -> -- ^ which positions are unoccupied by scenery
   Map ThingType a -> -- ^ mobs, to be accessed during the fold
   ThingType -> -- ^ mob id
   b -> -- ^ mob action
-  MaybeT m c -- ^ movement update
-moveThings' frees mobs tt action = do
+  MaybeT m (ThingType, c) -- ^ movement update
+moveThings' mobs tt action = do
   case action ^? _Move of
     Nothing -> do
       _movementGraph %= didn'tMove tt
@@ -298,8 +297,7 @@ moveThings' frees mobs tt action = do
     Just move -> do
       mob <- maybe empty pure $ Map.lookup tt mobs
       let pos' = runMove' (mob ^. _pos._Wrapped) move
-      guard (frees pos')
       (moved, mg') <- uses _movementGraph (tryMove tt)
       _movementGraph .= mg'
       guard moved
-      pure $ mempty & _updatePos ?~ pos'
+      pure (tt, mempty & _updatePos ?~ pos')

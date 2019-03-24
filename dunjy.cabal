@@ -41,6 +41,7 @@ library
                      , dependent-map ^>= 0.2
                      , dependent-sum ^>=0.4
                      , dependent-sum-template ^>=0.0
+                     , kan-extensions ^>=5.2
                      , lens >=4.15 && <4.18
                      , monoidal-containers ^>=0.4
                      , mtl ^>=2.2

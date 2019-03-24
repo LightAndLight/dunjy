@@ -1,11 +1,13 @@
 {-# language FlexibleContexts #-}
 module Attack where
 
+import Control.Applicative (empty)
 import Control.Lens.Fold ((^?))
 import Control.Lens.Getter ((^.), view)
 import Control.Lens.Setter ((?~))
 import Control.Lens.Wrapped (_Wrapped)
 import Control.Monad (guard)
+import Control.Monad.Trans.Maybe (MaybeT)
 import Data.Function ((&))
 import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
@@ -51,17 +53,19 @@ runMelees things =
 runMelees' ::
   ( HasPos Identity a, HasHealth Identity a
   , AsMelee b
+  , Monoid c, UpdateDamage c
+  , Monad m
   ) =>
   Map ThingType a -> -- ^ mobs, to be accessed during the fold
   ThingType -> -- ^ mob id
   b -> -- ^ mob action
-  Maybe (ThingType, Damage) -- ^ damage dealt, and to whom
+  MaybeT m (ThingType, c) -- ^ damage dealt, and to whom
 runMelees' mobs tt action = do
-  dir <- action ^? _Melee
-  mob <- Map.lookup tt mobs
-  target <- findAtPos (runMove' (mob ^. _pos._Wrapped) $ Relative dir) mobs
+  dir <- maybe empty pure $ action ^? _Melee
+  mob <- maybe empty pure $ Map.lookup tt mobs
+  target <- maybe empty pure $ findAtPos (runMove' (mob ^. _pos._Wrapped) $ Relative dir) mobs
   guard $ (mob ^. _health._Wrapped) > Health 0
-  pure (target, Damage 2)
+  pure (target, mempty & _updateDamage ?~ Damage 2)
   where
     findAtPos p =
       Map.foldrWithKey

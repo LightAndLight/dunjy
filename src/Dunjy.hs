@@ -36,13 +36,16 @@ import Brick.Widgets.Border (border)
 import Brick.Widgets.Core ((<+>), (<=>), raw, txt, translateBy, vBox)
 import Brick.Widgets.Dialog (dialog, renderDialog)
 import Brick.Types (Widget, Location(..))
-import Control.Applicative ((<|>), liftA2)
+import Control.Applicative ((<|>), liftA2, empty)
 import Control.Lens.Fold (folded, notNullOf)
 import Control.Lens.Getter ((^.))
 import Control.Lens.Wrapped (_Wrapped)
+import Control.Monad.Codensity (lowerCodensity)
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, runReaderT, asks)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity)
 import Data.Functor.Misc (Const2(..))
@@ -56,7 +59,7 @@ import System.Random (Random(..), newStdGen)
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 
-import Data.Monoid.Action (act)
+import Data.Monoid.Action (MonoidAction, act)
 import Action
 import Attack
 import Level
@@ -193,6 +196,38 @@ instance (Bounded a, Random a) => Random (Optional a) where
   randomR (Some a, None) g = (Some a, g)
 
   random = randomR (None, Some maxBound)
+
+combineUpdaters ::
+  Monad m =>
+  [Map ThingType a -> ThingType -> b -> MaybeT m (ThingType, c)] ->
+  Map ThingType a ->
+  ThingType ->
+  b ->
+  MaybeT m (ThingType, c)
+combineUpdaters a b c d = go a
+  where
+    go [] = empty
+    go (f:fs) = f b c d <|> go fs
+
+makeUpdates ::
+  (Monad m, MonoidAction c a) =>
+  [Map ThingType a -> ThingType -> b -> MaybeT m (ThingType, c)] ->
+  Map ThingType a ->
+  Map ThingType b ->
+  m (Maybe (MonoidalMap ThingType c))
+makeUpdates fs mobs =
+  runMaybeT .
+  lowerCodensity .
+  fmap snd .
+  Map.foldlWithKey
+    (\m tt b -> do
+        (mobs', rest) <- m
+        (k, v) <- lift $ f mobs' tt b
+        let new = MonoidalMap $ Map.singleton k v
+        pure (act new mobs', rest <> new))
+    (pure (mobs, mempty))
+  where
+    f = combineUpdaters fs
 
 askSelect :: MonadReader (EventSelector t k) m => k a -> m (Event t a)
 askSelect k = asks (`select` k)
