@@ -13,10 +13,8 @@ module Dunjy where
 import Reflex.Adjustable.Class (Adjustable)
 import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold, FunctorMaybe
-  , select, never, mergeWith, mergeMap
-  , fanMap, fmapMaybe
-  , coerceEvent
-  , ffilter, attachWithMaybe, attachWith
+  , select, never, mergeWith, mergeMap, fanMap, fmapMaybe
+  , coerceEvent, attachWith, attachWithMaybe
   )
 import Reflex.Dynamic
   ( Dynamic, updated, distributeMapOverDynPure, current, foldDyn
@@ -37,7 +35,6 @@ import Brick.Widgets.Core ((<+>), (<=>), raw, txt, translateBy, vBox)
 import Brick.Widgets.Dialog (dialog, renderDialog)
 import Brick.Types (Widget, Location(..))
 import Control.Applicative ((<|>), liftA2, empty)
-import Control.Lens.Fold (folded, notNullOf)
 import Control.Lens.Getter ((^.))
 import Control.Lens.Wrapped (_Wrapped)
 import Control.Lens.TH (makeLenses)
@@ -216,17 +213,19 @@ makeUpdates ::
   [Map ThingType a -> ThingType -> b -> MaybeT m (ThingType, c)] ->
   Map ThingType a ->
   Map ThingType b ->
-  m (Maybe (MonoidalMap ThingType c))
+  m (MonoidalMap ThingType c)
 makeUpdates fs mobs =
-  runMaybeT .
   lowerCodensity .
   fmap snd .
   Map.foldlWithKey
     (\m tt b -> do
         (mobs', rest) <- m
-        (k, v) <- lift $ f mobs' tt b
-        let new = MonoidalMap $ Map.singleton k v
-        pure (act new mobs', rest <> new))
+        mkv <- lift . runMaybeT $ f mobs' tt b
+        case mkv of
+          Nothing -> pure (mobs', rest)
+          Just (k, v) -> do
+            let new = MonoidalMap $ Map.singleton k v
+            pure (act new mobs', rest <> new))
     (pure (mobs, mempty))
   where
     f = combineUpdaters fs
@@ -242,7 +241,7 @@ instance HasMovementGraph UpdatesState where; _movementGraph = usMovementGraph
 updatesAttacksMoves ::
   Map ThingType (Thing t Identity) ->
   Map ThingType Action ->
-  Maybe (MonoidalMap ThingType (Updates t))
+  MonoidalMap ThingType (Updates t)
 updatesAttacksMoves a b =
   evalState
     (makeUpdates [moveThings', runMelees'] a b)
@@ -294,7 +293,7 @@ playScreen eQuit =
       eInsertMob =
         eRandomPos <&>
         \(HCons1 (ResponseRandom p) (HCons1 (ResponseId i) HNil1)) ->
-          Map.singleton (TThing i) (Just (p, Health 2))
+          Map.singleton (TThing i) (Just (p, Health 6))
 
     rec
       level <- newLevel 80 30 $ \x y -> pure (newTileAt $ Pos x y)
@@ -322,22 +321,8 @@ playScreen eQuit =
         eActions :: Event t (Map ThingType Action)
         eActions = switchDyn $ mergeMap . fmap _thingAction <$> dMobs
 
-        eMobsDamaged :: Event t (MonoidalMap ThingType (Updates t))
-        eMobsDamaged =
-          attachWith
-            (\a b -> MonoidalMap $ runMelees a b)
-            (current dMobs)
-            (ffilter (notNullOf $ folded._Melee) eActions)
-
-        eMobsMoved :: Event t (MonoidalMap ThingType (Updates t))
-        eMobsMoved =
-          attachWith
-            (\a b -> MonoidalMap $ moveThings (const True) a b)
-            (current dMobs)
-            (ffilter (notNullOf $ folded._Move) eActions)
-
         eMobsUpdated :: Event t (MonoidalMap ThingType (Updates t))
-        eMobsUpdated = mergeWith (<>) [eMobsMoved, eMobsDamaged]
+        eMobsUpdated = attachWith updatesAttacksMoves (current dMobs) eActions
 
         eDeleteMobs :: Event t (Map ThingType (Maybe (Pos, Health)))
         eDeleteMobs =
