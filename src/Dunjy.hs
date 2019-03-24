@@ -17,10 +17,11 @@ import Reflex.Class
   , fanMap, fmapMaybe
   , coerceEvent, fmapCheap
   , (<@>), ffilter, attachWithMaybe
-  , traceEvent
   )
 import Reflex.Dynamic
-  (Dynamic, switchDyn, updated, distributeMapOverDynPure, current, foldDyn)
+  ( Dynamic, updated, distributeMapOverDynPure, current, foldDyn
+  , switchDyn
+  )
 import Reflex.Brick (ReflexBrickApp(..), switchReflexBrickApp)
 import Reflex.Brick.Events (RBEvent(..))
 import Reflex.Brick.Types (ReflexBrickAppState(..))
@@ -291,14 +292,13 @@ playScreen eQuit =
 
         eMobsUpdated :: Event t (MonoidalMap ThingType (Updates t))
         eMobsUpdated =
-          mergeWith (<>) $
+          mergeWith (<>)
           [ eMobsMoved
           , eMobsDamaged
           ]
 
         eDeleteMobs :: Event t (Map ThingType (Maybe (Pos, Health)))
         eDeleteMobs =
-          traceEvent "delete" $
           attachWithMaybe
             (\mobs updates ->
                let
@@ -311,8 +311,7 @@ playScreen eQuit =
                    (act updates mobs)
                in
                  if null res then Nothing else Just res)
-
-              (current dMobs)
+            (current dMobs)
             eMobsUpdated
 
         updateSelector :: EventSelector t (Const2 ThingType (Updates t))

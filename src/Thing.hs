@@ -181,4 +181,4 @@ instance MonoidAction (Updates t) (Thing t Identity) where
     thingPos._Wrapped %~
       flip fromMaybe (m ^. _updatePos) &
     thingHealth._Wrapped <>~
-      fold (act <$> (m ^. _updateDamage) <*> (m ^. _updateHealing))
+      act (fold $ m ^. _updateDamage) (fold $ m ^. _updateHealing)
