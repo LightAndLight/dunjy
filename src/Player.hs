@@ -3,12 +3,14 @@
 {-# language TemplateHaskell #-}
 module Player where
 
-import Reflex.Class (Reflex, Behavior, Event, MonadHold, leftmost, (<@))
+import Reflex.Class (Reflex, Event, MonadHold, leftmost, attachWith)
 import Reflex.Dynamic (Dynamic, current)
 
 import Control.Lens.Getter ((^.))
 import Control.Lens.TH (makeLenses)
+import Control.Lens.Wrapped (_Wrapped)
 import Control.Monad.Fix (MonadFix)
+import Data.Functor.Identity (Identity)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
@@ -36,11 +38,12 @@ data PlayerControls t
 makeLenses ''PlayerControls
 
 initPlayer ::
-  forall t m.
+  forall t m a.
   ( Reflex t, MonadHold t m, MonadFix m
+  , HasPos Identity a
   ) =>
   PlayerControls t -> -- ^ controls
-  Dynamic t (Map ThingType Pos) -> -- ^ mob positions
+  Dynamic t (Map ThingType a) -> -- ^ mob positions
   ( Event t ()
   , Pos -> Health -> Event t (Updates t) -> m (Thing t (Dynamic t))
   )
@@ -49,33 +52,31 @@ initPlayer pc dMobPositions =
   , \pos health eUpdates -> mkThing pos health (pure '@') eAction eUpdates
   )
   where
-    bAdjacentMobs :: Behavior t (Set Dir)
-    bAdjacentMobs =
-      current $
-      (\mobs ->
-         fromMaybe Set.empty $ do
-           ppos <- Map.lookup TPlayer mobs
-           pure $
-             foldr
-             (\tpos ->
-               case subtractPos ppos tpos of
-                 Pos (-1) 0 -> Set.insert L
-                 Pos (-1) (-1) -> Set.insert UL
-                 Pos 0 (-1) -> Set.insert U
-                 Pos 1 (-1) -> Set.insert UR
-                 Pos 1 0 -> Set.insert R
-                 Pos 1 1 -> Set.insert DR
-                 Pos 0 1 -> Set.insert D
-                 Pos (-1) 1 -> Set.insert DL
-                 _ -> id)
-             mempty
-             mobs) <$>
-      dMobPositions
+    adjacentMobs :: Map ThingType a -> Set Dir
+    adjacentMobs mobs =
+      fromMaybe Set.empty $ do
+        p <- Map.lookup TPlayer mobs
+        pure $
+          foldr
+          (\t ->
+            case subtractPos (p ^. _pos._Wrapped) (t ^. _pos._Wrapped) of
+              Pos (-1) 0 -> Set.insert L
+              Pos (-1) (-1) -> Set.insert UL
+              Pos 0 (-1) -> Set.insert U
+              Pos 1 (-1) -> Set.insert UR
+              Pos 1 0 -> Set.insert R
+              Pos 1 1 -> Set.insert DR
+              Pos 0 1 -> Set.insert D
+              Pos (-1) 1 -> Set.insert DL
+              _ -> id)
+          mempty
+          mobs
 
     moveOrAttack d l =
-      (\m -> if m then Melee d else Move (Relative d)) <$>
-      fmap (Set.member d) bAdjacentMobs <@
-      (pc ^. l)
+      attachWith
+        (\mobs _ -> if Set.member d (adjacentMobs mobs) then Melee d else Move (Relative d))
+        (current dMobPositions)
+        (pc ^. l)
 
     moveOrAttackDirs =
       [ (L, pcLeft)

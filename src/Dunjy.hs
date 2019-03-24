@@ -15,8 +15,8 @@ import Reflex.Class
   ( Reflex, Event, EventSelector, MonadHold, FunctorMaybe
   , select, never, mergeWith, mergeMap
   , fanMap, fmapMaybe
-  , coerceEvent, fmapCheap
-  , (<@>), ffilter, attachWithMaybe
+  , coerceEvent
+  , ffilter, attachWithMaybe, attachWith
   )
 import Reflex.Dynamic
   ( Dynamic, updated, distributeMapOverDynPure, current, foldDyn
@@ -284,14 +284,6 @@ playScreen eQuit =
         dMobs :: Dynamic t (Map ThingType (Thing t Identity))
         dMobs = _dMobs >>= distributeMapOverDynPure . fmap sequenceThing
 
-        dMobPosAndSprite :: Dynamic t (Map ThingType (Pos, Char))
-        dMobPosAndSprite =
-          _dMobs >>=
-          distributeMapOverDynPure . fmap (liftA2 (,) <$> _thingPos <*> _thingSprite)
-
-        dMobPositions :: Dynamic t (Map ThingType Pos)
-        dMobPositions = _dMobs >>= distributeMapOverDynPure . fmap _thingPos
-
         (eTick, mkPlayer) =
           initPlayer
           (PlayerControls
@@ -305,7 +297,7 @@ playScreen eQuit =
           , _pcDownLeft = () <$ eKeyB
           , _pcWait = () <$ eKeyDot
           })
-          dMobPositions
+          dMobs
 
       let
         eActions :: Event t (Map ThingType Action)
@@ -313,24 +305,20 @@ playScreen eQuit =
 
         eMobsDamaged :: Event t (MonoidalMap ThingType (Updates t))
         eMobsDamaged =
-          fmapCheap MonoidalMap $
-          runMelees <$>
-          current dMobs <@>
-          ffilter (notNullOf $ folded._Melee) eActions
+          attachWith
+            (\a b -> MonoidalMap $ runMelees a b)
+            (current dMobs)
+            (ffilter (notNullOf $ folded._Melee) eActions)
 
         eMobsMoved :: Event t (MonoidalMap ThingType (Updates t))
         eMobsMoved =
-          fmapCheap MonoidalMap $
-          moveThings (const True) <$>
-          current dMobs <@>
-          ffilter (notNullOf $ folded._Move) eActions
+          attachWith
+            (\a b -> MonoidalMap $ moveThings (const True) a b)
+            (current dMobs)
+            (ffilter (notNullOf $ folded._Move) eActions)
 
         eMobsUpdated :: Event t (MonoidalMap ThingType (Updates t))
-        eMobsUpdated =
-          mergeWith (<>)
-          [ eMobsMoved
-          , eMobsDamaged
-          ]
+        eMobsUpdated = mergeWith (<>) [eMobsMoved, eMobsDamaged]
 
         eDeleteMobs :: Event t (Map ThingType (Maybe (Pos, Health)))
         eDeleteMobs =
@@ -379,6 +367,13 @@ playScreen eQuit =
                  mkThing pos health (pure 'Z') eAction eUpdate)
 
     dActionLog :: Dynamic t [Map ThingType Action] <- foldDyn (:) [] eActions
+
+    let
+      dMobPosAndSprite :: Dynamic t (Map ThingType (Pos, Char))
+      dMobPosAndSprite =
+        _dMobs >>=
+        distributeMapOverDynPure .
+        fmap (liftA2 (,) <$> _thingPos <*> _thingSprite)
 
     pure
       ( ReflexBrickApp
