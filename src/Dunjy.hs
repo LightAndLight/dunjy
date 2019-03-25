@@ -244,7 +244,7 @@ updatesAttacksMoves ::
   MonoidalMap ThingType (Updates t)
 updatesAttacksMoves a b =
   evalState
-    (makeUpdates [moveThings', runMelees'] a b)
+    (makeUpdates [moveThings, runMelees'] a b)
     (UpdatesState { _usMovementGraph = makeMovementGraph a b })
 
 askSelect :: MonadReader (EventSelector t k) m => k a -> m (Event t a)

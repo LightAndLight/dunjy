@@ -22,11 +22,11 @@ import Control.Lens.Getter ((^.))
 import Control.Lens.Lens (Lens', lens)
 import Control.Lens.Setter ((%~), (<>~))
 import Control.Lens.TH (makeLenses)
-import Control.Lens.Wrapped (_Wrapped)
+import Control.Lens.Wrapped (_Wrapped, _Unwrapped)
 import Control.Monad.Fix (MonadFix)
 import Data.Coerce (coerce)
 import Data.Dependent.Map (DMap)
-import Data.Dependent.Sum (ShowTag(..))
+import Data.Dependent.Sum (ShowTag(..), EqTag(..))
 import Data.Foldable (fold)
 import Data.GADT.Compare.TH (deriveGEq, deriveGCompare)
 import Data.GADT.Show.TH (deriveGShow)
@@ -85,11 +85,15 @@ deriveGCompare ''Update
 deriveGShow ''Update
 
 newtype Updates t = Updates { unUpdates :: DMap Update Identity }
-  deriving Show
+  deriving (Eq, Show)
 instance ShowTag Update Identity where
   showTaggedPrec UpdateHealing = showsPrec
   showTaggedPrec UpdatePos = showsPrec
   showTaggedPrec UpdateDamage = showsPrec
+instance EqTag Update Identity where
+  eqTagged UpdateHealing UpdateHealing = (==)
+  eqTagged UpdatePos UpdatePos = (==)
+  eqTagged UpdateDamage UpdateDamage = (==)
 class UpdateDamage s where; _updateDamage :: Lens' s (Maybe Damage)
 class UpdateHealing s where; _updateHealing :: Lens' s (Maybe Health)
 class UpdatePos s where; _updatePos :: Lens' s (Maybe Pos)
@@ -126,7 +130,9 @@ sequenceThing (Thing a b c d) =
   coerceDynamic c <*>
   pure d
 class HasHealth f s | s -> f where; _health :: Lens' s (f Health)
+instance HasHealth Identity Health where; _health = _Unwrapped
 class HasPos f s | s -> f where; _pos :: Lens' s (f Pos)
+instance HasPos Identity Pos where; _pos = _Unwrapped
 
 mkThing ::
   (Reflex t, MonadHold t m, MonadFix m) =>

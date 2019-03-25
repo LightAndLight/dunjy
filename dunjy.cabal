@@ -77,6 +77,10 @@ test-suite dunjy-tests
                      , hspec
                      , hedgehog
                      , hw-hspec-hedgehog
+                     , lens
+                     , monoidal-containers
+                     , mtl
+                     , reflex
   ghc-options:         -Wall -Werror
   main-is: Main.hs
   default-language:    Haskell2010
